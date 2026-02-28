@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Results (large binary files - regeneratable)
+results/*.pkl
+results/*.npz
+results/**/*.vtu
+results/**/*.json
+results/*.vtu
+results/*.json
+
+# Old/duplicate reports (keep only latest v3)
+report/report.docx
+report/test_report.docx
+report/two_fluid_fvm_report.docx
+report/TwoFluid_FVM_Report.docx
+report/TwoFluid_FVM_Report_v2.docx
+report/TwoFluid_FVM_Report_with_PhaseChange_Models.docx
+report/__pycache__/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# Temp / scripts
+_check.ps1
+_cleanup.ps1
+.omc/
