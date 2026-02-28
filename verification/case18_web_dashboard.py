@@ -14,10 +14,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from visualization.web_dashboard import SimulationMonitor, WebDashboard
-
 
 def run_case18(results_dir: str = "results", figures_dir: str = "figures") -> dict:
     """
@@ -208,7 +205,7 @@ def run_case18(results_dir: str = "results", figures_dir: str = "figures") -> di
 
     return result
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case18()
     print(f"\nDONE Case18")

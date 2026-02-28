@@ -13,14 +13,12 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 import time
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scipy.sparse.linalg import bicgstab as scipy_bicgstab
 from core.preconditioner import create_preconditioner, HAS_PYAMG
 from core.fvm_operators import FVMSystem
 from mesh.mesh_generator import generate_channel_mesh
 from mesh.vtk_exporter import export_mesh_to_vtu
-
 
 def _build_convdiff_system(mesh, gamma_val=0.01, u_conv=1.0):
     """
@@ -98,12 +96,10 @@ def _build_convdiff_system(mesh, gamma_val=0.01, u_conv=1.0):
 
     return system
 
-
 def _reference_solution(A, b):
     """직접법(spsolve)으로 참조 해를 계산."""
     from scipy.sparse.linalg import spsolve
     return spsolve(A, b)
-
 
 def run_case16(results_dir="results", figures_dir="figures") -> dict:
     """
@@ -281,8 +277,8 @@ def run_case16(results_dir="results", figures_dir="figures") -> dict:
         'all_accurate': bool(all_accurate),
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     r = run_case16()
     print(f"\n결과 요약:")
     for pc, data in r['results'].items():

@@ -1,0 +1,18 @@
+[project]
+name = "twofluid-fvm"
+version = "1.0.0"
+description = "Two-Fluid Model (Euler-Euler) FVM 열유체 솔버"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+dependencies = [
+    "numpy>=1.19",
+    "scipy>=1.5",
+    "matplotlib>=3.3",
+    "python-docx>=0.8.11",
+    "flask>=2.0",
+    "meshio>=5.0",
+]
+
+[project.optional-dependencies]
+gpu = ["cupy>=11.0"]

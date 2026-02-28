@@ -12,11 +12,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from mesh.mesh_generator import generate_channel_mesh
 from core.time_control import AdaptiveTimeControl
-
 
 def run_case17(results_dir="results", figures_dir="figures"):
     """적응 시간 간격 검증."""
@@ -168,6 +165,6 @@ def run_case17(results_dir="results", figures_dir="figures"):
     print(f"  CFL always OK  : {cfl_always_ok}")
     return result
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     run_case17()

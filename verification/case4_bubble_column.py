@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator import generate_bubble_column_mesh
 from models.two_fluid import TwoFluidSolver
@@ -204,6 +203,7 @@ def run_case4(results_dir: str = "results", figures_dir: str = "figures") -> dic
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case4()
     print(f"\n  결과 요약:")
     print(f"    시간 스텝: {result['time_steps']}")

@@ -13,14 +13,12 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator_3d import generate_3d_channel_mesh
 from models.single_phase import SIMPLESolver
 from core.fields import ScalarField
 from core.gradient import green_gauss_gradient
 from core.fvm_operators import FVMSystem, diffusion_operator, source_term
-
 
 def run_case15(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -337,8 +335,8 @@ def run_case15(results_dir: str = "results",
         'T_max': float(T.values.max()),
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case15()
     print(f"\n  결과: Nu={result['nusselt']:.4f}, "
           f"수렴={result['converged']}, 성층화={result['stratified']}")

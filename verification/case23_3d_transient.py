@@ -20,12 +20,9 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from mesh.mesh_generator_3d import generate_3d_channel_mesh
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
 from models.single_phase import SIMPLESolver
-
 
 def run_case23(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -359,8 +356,8 @@ def run_case23(results_dir: str = "results",
         'Re': Re,
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case23()
     print(f"\n결과 요약:")
     print(f"  L2 오차: {result['L2_error']:.4e}")

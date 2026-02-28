@@ -90,86 +90,91 @@ cases = [
     (25, 'case25_film_condensation', run_case25, {}, 180),
 ]
 
-# Load cached results as fallback
-cached = {}
-pkl_path = os.path.join(RESULTS_DIR, 'all_results.pkl')
-if os.path.exists(pkl_path):
-    with open(pkl_path, 'rb') as f:
-        cached = pickle.load(f)
-    print(f"Loaded {len(cached)} cached results from pickle")
+def main():
+    # Load cached results as fallback
+    cached = {}
+    pkl_path = os.path.join(RESULTS_DIR, 'all_results.pkl')
+    if os.path.exists(pkl_path):
+        with open(pkl_path, 'rb') as f:
+            cached = pickle.load(f)
+        print(f"Loaded {len(cached)} cached results from pickle")
 
-all_results = {}
-summary = []
+    all_results = {}
+    summary = []
 
-for num, key, func, extra, timeout in cases:
-    kw = {'results_dir': RESULTS_DIR, 'figures_dir': FIGURES_DIR}
-    kw.update(extra)
-    t0 = time.time()
-    print(f'Running Case {num:2d} ({key}) ... ', end='', flush=True)
-    r = run_with_timeout(func, kw, timeout=timeout)
-    elapsed = time.time() - t0
+    for num, key, func, extra, timeout in cases:
+        kw = {'results_dir': RESULTS_DIR, 'figures_dir': FIGURES_DIR}
+        kw.update(extra)
+        t0 = time.time()
+        print(f'Running Case {num:2d} ({key}) ... ', end='', flush=True)
+        r = run_with_timeout(func, kw, timeout=timeout)
+        elapsed = time.time() - t0
 
-    if r is None:
-        # Timeout - use cached
-        if key in cached:
-            r = cached[key]
-            status = f'CACHED (timeout {elapsed:.0f}s, using previous result)'
+        if r is None:
+            # Timeout - use cached
+            if key in cached:
+                r = cached[key]
+                status = f'CACHED (timeout {elapsed:.0f}s, using previous result)'
+            else:
+                r = {'error': f'TIMEOUT ({timeout}s) and no cache'}
+                status = f'TIMEOUT (no cache)'
+        elif isinstance(r, dict) and 'error' in r:
+            # Error - try cached
+            err_msg = r['error'][:60]
+            if key in cached and 'error' not in cached[key]:
+                r = cached[key]
+                status = f'CACHED (error: {err_msg})'
+            else:
+                status = f'ERROR: {err_msg}'
         else:
-            r = {'error': f'TIMEOUT ({timeout}s) and no cache'}
-            status = f'TIMEOUT (no cache)'
-    elif isinstance(r, dict) and 'error' in r:
-        # Error - try cached
-        err_msg = r['error'][:60]
-        if key in cached and 'error' not in cached[key]:
-            r = cached[key]
-            status = f'CACHED (error: {err_msg})'
-        else:
-            status = f'ERROR: {err_msg}'
-    else:
-        status = f'OK ({elapsed:.1f}s)'
+            status = f'OK ({elapsed:.1f}s)'
 
-    all_results[key] = r
-    line = f'Case {num:2d}: {status}'
-    summary.append(line)
-    print(status, flush=True)
+        all_results[key] = r
+        line = f'Case {num:2d}: {status}'
+        summary.append(line)
+        print(status, flush=True)
 
-print('\n' + '=' * 60)
-print('SUMMARY')
-print('=' * 60)
-for line in summary:
-    print(line)
+    print('\n' + '=' * 60)
+    print('SUMMARY')
+    print('=' * 60)
+    for line in summary:
+        print(line)
 
-# Save merged results
-with open(pkl_path, 'wb') as f:
-    pickle.dump(all_results, f)
-print(f'\nResults saved to {pkl_path}')
+    # Save merged results
+    with open(pkl_path, 'wb') as f:
+        pickle.dump(all_results, f)
+    print(f'\nResults saved to {pkl_path}')
 
-# Render ParaView-style figures (meshio + matplotlib)
-print('\n' + '=' * 60)
-print('Rendering mesh visualization figures...')
-print('=' * 60)
+    # Render ParaView-style figures (meshio + matplotlib)
+    print('\n' + '=' * 60)
+    print('Rendering mesh visualization figures...')
+    print('=' * 60)
 
-try:
-    from visualization.vtu_renderer import render_all_missing
-    render_all_missing(RESULTS_DIR, FIGURES_DIR)
-except Exception as e:
-    print(f'  Mesh visualization rendering skipped: {e}')
+    try:
+        from visualization.vtu_renderer import render_all_missing
+        render_all_missing(RESULTS_DIR, FIGURES_DIR)
+    except Exception as e:
+        print(f'  Mesh visualization rendering skipped: {e}')
 
-# Generate DOCX report
-print('\n' + '=' * 60)
-print('Generating DOCX report...')
-print('=' * 60)
+    # Generate DOCX report
+    print('\n' + '=' * 60)
+    print('Generating DOCX report...')
+    print('=' * 60)
 
-from report.report_generator import generate_report
+    from report.report_generator import generate_report
 
-report_dir = os.path.join(BASE_DIR, 'report')
-os.makedirs(report_dir, exist_ok=True)
-report_path = os.path.join(report_dir, 'TwoFluid_FVM_Report.docx')
+    report_dir = os.path.join(BASE_DIR, 'report')
+    os.makedirs(report_dir, exist_ok=True)
+    report_path = os.path.join(report_dir, 'TwoFluid_FVM_Report.docx')
 
-try:
-    generate_report(all_results, report_path, FIGURES_DIR)
-    print(f'\nReport generated: {report_path}')
-except Exception as e:
-    import traceback
-    traceback.print_exc()
-    print(f'\nReport generation failed: {e}')
+    try:
+        generate_report(all_results, report_path, FIGURES_DIR)
+        print(f'\nReport generated: {report_path}')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f'\nReport generation failed: {e}')
+
+
+if __name__ == "__main__":
+    main()

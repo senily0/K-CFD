@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator import generate_channel_mesh
 from parallel.mpi_solver import MPISIMPLESolver
@@ -149,6 +148,7 @@ def run_case8(results_dir: str = "results",
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case8()
     print(f"\n  결과: 최대 파티션 차이 = {result['max_partition_diff']:.2e}")
     if result['max_partition_diff'] < 1e-6:

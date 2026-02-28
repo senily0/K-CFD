@@ -12,14 +12,12 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 import time
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator import generate_channel_mesh
 from core.fields import ScalarField
 from core.fvm_operators import FVMSystem, diffusion_operator, source_term
 from core.gpu_solver import detect_gpu_backend, benchmark_solvers, _cpu_bicgstab
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
-
 
 def run_case13(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -230,8 +228,8 @@ def run_case13(results_dir: str = "results",
         'max_bicgstab_error': max_err,
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case13()
     print(f"\n  GPU backend: {result['backend']}")
     print(f"  GPU available: {result['gpu_available']}")

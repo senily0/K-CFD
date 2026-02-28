@@ -19,13 +19,10 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from mesh.mesh_generator import _make_structured_quad_mesh
 from mesh.mesh_reader import build_fvmesh_from_arrays
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
 from models.two_fluid import TwoFluidSolver
-
 
 def run_case24(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -311,8 +308,8 @@ def run_case24(results_dir: str = "results",
         'vtu_path': vtu_path,
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case24()
     print(f"\n결과 요약:")
     print(f"  비등 발생: {result['boiling_occurred']}")

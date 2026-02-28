@@ -13,12 +13,10 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator_3d import generate_3d_cavity_mesh
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
 from models.single_phase import SIMPLESolver
-
 
 def run_case14(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -201,8 +199,8 @@ def run_case14(results_dir: str = "results",
 
     return result_data
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case14()
     print("\n  결과 요약:")
     print(f"    수렴: {result['converged']}")

@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator import generate_channel_mesh
 from core.fields import ScalarField, VectorField
@@ -309,6 +308,7 @@ def run_case6(results_dir: str = "results", figures_dir: str = "figures") -> dic
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case6()
     print("\n  결과 요약:")
     print(f"    Upwind 확산 폭:  {result['upwind_diffusion_width']:.4f} m")

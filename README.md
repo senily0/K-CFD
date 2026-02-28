@@ -60,6 +60,7 @@ GitHub: [https://github.com/senily0/K-CFD](https://github.com/senily0/K-CFD)
 | `models/chemistry.py` | 화학반응 (1차 반응) |
 | `models/turbulence.py` | k-epsilon 난류 모델 |
 | `models/conjugate_ht.py` | 공액열전달(CHT) — 고체/유체 결합 |
+| `models/solid_conduction.py` | 고체 영역 열전도 솔버 (정상/비정상) |
 | `models/closure.py` | 항력, 양력 등 계면 클로저 상관식 |
 
 ### 격자
@@ -99,6 +100,7 @@ twofluid_fvm/
 ├── figures/            # 검증 그래프 및 메쉬 시각화 그림
 ├── report/             # 보고서 생성기 및 DOCX 보고서
 ├── results/            # 케이스 실행 결과 (pickle)
+├── pyproject.toml      # 패키지 설정 및 의존성
 ├── generate_report.py  # 25개 케이스 실행 + DOCX 생성 (권장)
 └── main.py             # 대안 실행 진입점
 ```
@@ -108,6 +110,14 @@ twofluid_fvm/
 ## 설치
 
 Python 3.8 이상 필요.
+
+### 패키지 설치 (권장)
+
+```bash
+pip install -e .
+```
+
+### 또는 수동 설치
 
 ```bash
 pip install numpy scipy matplotlib python-docx flask meshio

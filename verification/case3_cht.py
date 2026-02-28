@@ -42,7 +42,6 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
@@ -372,4 +371,5 @@ def run_case3(results_dir: str = "results", figures_dir: str = "figures") -> dic
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case3()

@@ -24,14 +24,11 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from models.phase_change import saturation_temperature, water_latent_heat, water_properties
 from mesh.mesh_generator import _make_structured_quad_mesh
 from mesh.mesh_reader import build_fvmesh_from_arrays
 from core.fields import ScalarField
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
-
 
 # ---------------------------------------------------------------------------
 # Edwards 실험 데이터 (문헌값 근사 — GS-5 void fraction)
@@ -53,7 +50,6 @@ EDWARDS_GS3_PRESSURE = {
                          0.8, 0.5, 0.3, 0.2, 0.15]),
 }
 
-
 # ---------------------------------------------------------------------------
 # 1D 메쉬 생성
 # ---------------------------------------------------------------------------
@@ -68,7 +64,6 @@ def _make_1d_pipe(L, nx):
         }
     )
     return build_fvmesh_from_arrays(nodes, cells, bfaces)
-
 
 # ---------------------------------------------------------------------------
 # 메인 케이스 함수
@@ -438,8 +433,8 @@ def run_case20(results_dir: str = "results",
     }
     return result
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case20()
     print(f"\nResult summary:")
     for k, v in result.items():

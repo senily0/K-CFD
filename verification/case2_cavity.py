@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator import generate_cavity_mesh
 from models.single_phase import SIMPLESolver
@@ -223,6 +222,7 @@ def run_case2(re_list: list = None, n_grid: int = 32,
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     results = run_case2(re_list=[100, 400], n_grid=32)
     for Re, res in results.items():
         print(f"\n  Re={Re}: 수렴={res['converged']}, 반복={res['iterations']}")

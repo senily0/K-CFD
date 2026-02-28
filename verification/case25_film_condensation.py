@@ -25,14 +25,11 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from mesh.mesh_generator import _make_structured_quad_mesh
 from mesh.mesh_reader import build_fvmesh_from_arrays
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
 from models.phase_change import NusseltCondensationModel, LeePhaseChangeModel
 from core.fields import ScalarField
-
 
 # 물(water) 100°C, 1 atm 물성치
 WATER_PROPS = dict(
@@ -48,7 +45,6 @@ WATER_PROPS = dict(
     Pr_l=1.75,
 )
 
-
 def _make_1d_mesh(L, nx):
     """길이 L, 셀 수 nx 인 1D (x 방향) 채널 메쉬."""
     nodes, cells, bfaces = _make_structured_quad_mesh(
@@ -60,7 +56,6 @@ def _make_1d_mesh(L, nx):
         }
     )
     return build_fvmesh_from_arrays(nodes, cells, bfaces)
-
 
 def _test_a_nusselt_validation(wp):
     """
@@ -113,7 +108,6 @@ def _test_a_nusselt_validation(wp):
         'max_error': max_err,
         'valid': max_err < 0.01,
     }
-
 
 def _test_b_condensation_sim(wp):
     """
@@ -302,7 +296,6 @@ def _test_b_condensation_sim(wp):
         'mesh': mesh,
     }
 
-
 def run_case25(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
     """
@@ -473,8 +466,8 @@ def run_case25(results_dir: str = "results",
         'vtu_path': os.path.join(case_dir, 'condensation_final.vtu'),
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case25()
     print(f"\n결과 요약:")
     print(f"  Nusselt 오차: {result['nusselt_error']:.6e}")

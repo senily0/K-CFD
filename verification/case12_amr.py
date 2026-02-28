@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator import generate_channel_mesh
 from mesh.amr import AMRMesh, GradientJumpEstimator, AMRSolverLoop
@@ -20,7 +19,6 @@ from core.fields import ScalarField
 from core.fvm_operators import FVMSystem, diffusion_operator, source_term
 from core.linear_solver import solve_linear_system
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
-
 
 def run_case12(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -196,8 +194,8 @@ def run_case12(results_dir: str = "results",
         'figure_path': fig_path,
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case12()
     print(f"\n  결과: {result['n_cells_initial']} → {result['n_cells_final']} cells")
     if result['n_cells_final'] > result['n_cells_initial']:

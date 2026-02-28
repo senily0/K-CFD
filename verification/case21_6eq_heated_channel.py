@@ -20,13 +20,10 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from mesh.mesh_generator import _make_structured_quad_mesh
 from mesh.mesh_reader import build_fvmesh_from_arrays
 from models.two_fluid import TwoFluidSolver
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
-
 
 def _make_channel_mesh(L, W, nx, ny):
     """2D 수직 가열 채널 격자.
@@ -68,7 +65,6 @@ def _make_channel_mesh(L, W, nx, ny):
 
     return build_fvmesh_from_arrays(
         nodes, cells, boundary_faces_dict, ndim=2)
-
 
 def run_case21(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -402,8 +398,8 @@ def run_case21(results_dir: str = "results",
 
     return result_data
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case21()
     print(f"  T_l 증가: {result['T_l_increase']:.2f} K")
     print(f"  에너지 보존 오차: {result['energy_ratio']*100:.1f}%")

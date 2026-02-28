@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator_3d import generate_3d_duct_mesh
 from models.single_phase import SIMPLESolver
@@ -236,6 +235,7 @@ def run_case5(results_dir: str = "results",
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case5()
     print(f"\n  결과 요약: L2 오차 = {result['L2_error']:.4e}")
     if result['L2_error'] < 0.05:

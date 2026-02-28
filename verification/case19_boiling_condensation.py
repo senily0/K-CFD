@@ -15,8 +15,6 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from models.phase_change import (
     RohsenowBoilingModel, ZuberCHFModel, NusseltCondensationModel,
     LeePhaseChangeModel,
@@ -25,7 +23,6 @@ from mesh.mesh_generator import _make_structured_quad_mesh
 from mesh.mesh_reader import build_fvmesh_from_arrays
 from core.fields import ScalarField
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
-
 
 # ---------------------------------------------------------------------------
 # 물(water) 100°C, 1 atm 물성치
@@ -42,7 +39,6 @@ WATER_PROPS = dict(
     Pr_l=1.75,          # -
 )
 
-
 # ---------------------------------------------------------------------------
 # 1D 채널 메쉬 (case9에서 차용)
 # ---------------------------------------------------------------------------
@@ -57,7 +53,6 @@ def _make_1d_mesh(L, nx):
         }
     )
     return build_fvmesh_from_arrays(nodes, cells, bfaces)
-
 
 # ===================================================================
 # Test A: Rohsenow 핵비등 열유속 검증
@@ -98,7 +93,6 @@ def _test_a_rohsenow(wp):
         'q_range': [q_min, q_max],
         'valid': bool(valid),
     }
-
 
 # ===================================================================
 # Test B: Nusselt 막응축 열전달 계수 검증
@@ -144,7 +138,6 @@ def _test_b_nusselt(wp):
         'h_range': [float(h_numerical.min()), float(h_numerical.max())],
         'valid': bool(valid),
     }
-
 
 # ===================================================================
 # Test C: 1D 비등/응축 통합 시뮬레이션
@@ -296,7 +289,6 @@ def _test_c_integrated(wp):
         'right_avg_al': float(right_avg_al),
     }
 
-
 # ===================================================================
 # 메인 케이스 함수
 # ===================================================================
@@ -445,8 +437,8 @@ def run_case19(results_dir: str = "results",
     }
     return result
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case19()
     print(f"\n결과 요약:")
     print(f"  Rohsenow 유효:     {result['rohsenow_valid']}")

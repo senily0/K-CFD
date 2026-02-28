@@ -18,12 +18,9 @@ from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from mesh.hybrid_mesh_generator import generate_hybrid_hex_tet_mesh
 from models.single_phase import SIMPLESolver
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
-
 
 def analytical_3d_duct(y, z, H, W, dpdx, mu, n_terms=20):
     """3D 정사각 덕트 Poiseuille 해석해 (Case 5와 동일)."""
@@ -50,7 +47,6 @@ def analytical_3d_duct(y, z, H, W, dpdx, mu, n_terms=20):
 
     u *= 4.0 * G * a**2 / (mu * np.pi**3)
     return np.maximum(u, 0.0)
-
 
 def run_case22(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -314,8 +310,8 @@ def run_case22(results_dir: str = "results",
 
     return result_data
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case22()
     print(f"\n  L2 오차: {result['L2_error']:.4e}")
     if result['L2_error'] < 0.10:

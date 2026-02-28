@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator import generate_triangle_channel_mesh
 from models.single_phase import SIMPLESolver
@@ -179,6 +178,7 @@ def run_case7(results_dir: str = "results",
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case7()
     print(f"\n  결과: L2 오차 = {result['L2_error']:.4e} ({result['n_cells']} cells)")
     if result['L2_error'] < 0.10:

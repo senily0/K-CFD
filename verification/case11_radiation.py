@@ -13,13 +13,11 @@ import matplotlib.pyplot as plt
 from verification.plot_config import _FONT_NAME  # 한글 폰트 설정
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh.mesh_generator import generate_channel_mesh
 from core.fields import ScalarField
 from models.radiation import P1RadiationModel, SIGMA_SB
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
-
 
 def run_case11(results_dir: str = "results",
                figures_dir: str = "figures") -> dict:
@@ -145,8 +143,8 @@ def run_case11(results_dir: str = "results",
         'residuals': result['residuals'],
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case11()
     print(f"\n  결과: L2(G vs equilibrium) = {result['L2_error']:.4e}")
     if result['converged']:

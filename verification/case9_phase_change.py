@@ -26,14 +26,11 @@ import sys
 from scipy.special import erf
 from scipy.optimize import brentq
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from mesh.mesh_generator import _make_structured_quad_mesh
 from mesh.mesh_reader import build_fvmesh_from_arrays
 from core.fields import ScalarField
 from models.phase_change import LeePhaseChangeModel
 from mesh.vtk_exporter import export_mesh_to_vtu, export_input_json
-
 
 # ---------------------------------------------------------------------------
 # 1D 채널 메쉬 생성 (nx x 1 quad cells)
@@ -50,7 +47,6 @@ def _make_1d_mesh(L: float, nx: int):
         }
     )
     return build_fvmesh_from_arrays(nodes, cells, bfaces)
-
 
 # ---------------------------------------------------------------------------
 # 해석 해: Stefan 문제 lambda 계산
@@ -76,13 +72,11 @@ def _stefan_lambda(Ste: float) -> float:
     lam = brentq(f, 1e-9, hi, xtol=1e-12, maxiter=200)
     return lam
 
-
 def stefan_interface_position(t: float, lam: float, alpha_th: float) -> float:
     """s(t) = 2 * lambda * sqrt(alpha_th * t)."""
     if t <= 0.0:
         return 0.0
     return 2.0 * lam * np.sqrt(alpha_th * t)
-
 
 # ---------------------------------------------------------------------------
 # 인터페이스 위치 추출 (alpha = 0.5 등위선 + 초기 단계 보조 추정)
@@ -123,7 +117,6 @@ def _find_interface(x: np.ndarray, alpha_l: np.ndarray,
     dx_val = dx if dx is not None else (x[1] - x[0] if n > 1 else 1.0)
     total_gas_vol = float(np.sum(alpha_gas)) * dx_val
     return total_gas_vol
-
 
 # ---------------------------------------------------------------------------
 # 메인 케이스 함수
@@ -430,8 +423,8 @@ def run_case9(results_dir: str = "results", figures_dir: str = "figures") -> dic
         'Ste':                float(Ste),
     }
 
-
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     result = run_case9()
     print(f"\n결과 요약:")
     print(f"  Stefan number:           {result['Ste']:.6f}")

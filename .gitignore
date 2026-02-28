@@ -7,7 +7,7 @@ __pycache__/
 dist/
 build/
 
-# Results (large binary files - regeneratable)
+# Results (auto-generated, regeneratable)
 results/*.pkl
 results/*.npz
 results/**/*.vtu
@@ -15,14 +15,12 @@ results/**/*.json
 results/*.vtu
 results/*.json
 
-# Old/duplicate reports (keep only latest)
-report/report.docx
-report/test_report.docx
-report/two_fluid_fvm_report.docx
-report/TwoFluid_FVM_Report_v2.docx
-report/TwoFluid_FVM_Report_v3.docx
-report/TwoFluid_FVM_Report_with_PhaseChange_Models.docx
-report/__pycache__/
+# Reports (keep only TwoFluid_FVM_Report.docx)
+report/*.docx
+!report/TwoFluid_FVM_Report.docx
+
+# Figures (test artifacts)
+figures/font_test*.png
 
 # IDE / OS
 .vscode/
@@ -32,7 +30,5 @@ report/__pycache__/
 Thumbs.db
 .DS_Store
 
-# Temp / scripts
-_check.ps1
-_cleanup.ps1
+# Temp
 .omc/
