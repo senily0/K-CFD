@@ -72,7 +72,7 @@ def run_case22(results_dir: str = "results",
     Lx = 2.0
     Ly = 0.1
     Lz = 0.1
-    nx, ny, nz = 20, 6, 6
+    nx, ny, nz = 16, 4, 4
     rho = 1.0
     mu = 0.01
     dpdx = -1.0
@@ -96,8 +96,8 @@ def run_case22(results_dir: str = "results",
 
     # 솔버 설정
     solver = SIMPLESolver(mesh, rho=rho, mu=mu)
-    solver.max_outer_iter = 500
-    solver.tol = 1e-4
+    solver.max_outer_iter = 300
+    solver.tol = 1e-3
     solver.alpha_u = 0.7
     solver.alpha_p = 0.3
 

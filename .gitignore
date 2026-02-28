@@ -15,12 +15,12 @@ results/**/*.json
 results/*.vtu
 results/*.json
 
-# Old/duplicate reports (keep only latest v3)
+# Old/duplicate reports (keep only latest)
 report/report.docx
 report/test_report.docx
 report/two_fluid_fvm_report.docx
-report/TwoFluid_FVM_Report.docx
 report/TwoFluid_FVM_Report_v2.docx
+report/TwoFluid_FVM_Report_v3.docx
 report/TwoFluid_FVM_Report_with_PhaseChange_Models.docx
 report/__pycache__/
 

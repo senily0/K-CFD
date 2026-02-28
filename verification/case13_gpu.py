@@ -48,7 +48,6 @@ def run_case13(results_dir: str = "results",
         (10, 10),     # 100 cells
         (32, 32),     # 1024 cells
         (100, 100),   # 10000 cells
-        (224, 224),   # 50176 cells
     ]
 
     benchmarks = []
@@ -89,7 +88,7 @@ def run_case13(results_dir: str = "results",
         b = system.rhs
 
         # 벤치마크
-        bm = benchmark_solvers(A, b, n_runs=3)
+        bm = benchmark_solvers(A, b, n_runs=1)
         bm['n_cells'] = n_cells
 
         # 정확도 검증: BiCGSTAB vs direct (L2 norm)

@@ -189,8 +189,11 @@ def run_case21(results_dir: str = "results",
     y_prof = y_mid; T_l_prof = T_l_mid; T_g_prof = T_g_mid; alpha_g_prof = alpha_g_mid
 
     # 에너지 보존 검사: 벽 열유속 = 출구-입구 엔탈피 상승량 (face-by-face)
-    # 기준 온도(T_ref=T_inlet)를 빼서 수치 소거 오류 방지
-    T_ref = T_inlet
+    # 절대 온도 기반 질량유속 방식: solver가 실제로 보존하는 양과 일치
+    from core.interpolation import compute_mass_flux
+    mf_l = compute_mass_flux(solver.U_l, solver.rho_l, mesh)
+    mf_g = compute_mass_flux(solver.U_g, solver.rho_g, mesh)
+
     inlet_fids = mesh.boundary_patches.get('inlet', [])
     E_in = 0.0
     for fid in inlet_fids:
@@ -198,11 +201,10 @@ def run_case21(results_dir: str = "results",
         owner = face.owner
         al = solver.alpha_l.values[owner]
         ag = solver.alpha_g.values[owner]
-        # 입구: T = T_inlet → (T - T_ref) = 0, 따라서 E_in = 0 (기준점)
-        dT_l_in = T_inlet - T_ref   # = 0
-        dT_g_in = T_inlet - T_ref   # = 0
-        E_in += (al * solver.rho_l * solver.cp_l * dT_l_in * U_inlet +
-                 ag * solver.rho_g * solver.cp_g * dT_g_in * U_inlet) * face.area
+        # 입구: 유입 질량유속(음수)의 절대값 × alpha × cp × T_inlet
+        F_l = abs(mf_l[fid])
+        F_g = abs(mf_g[fid])
+        E_in += al * solver.cp_l * F_l * T_inlet + ag * solver.cp_g * F_g * T_inlet
 
     outlet_fids = mesh.boundary_patches.get('outlet', [])
     E_out = 0.0
@@ -213,12 +215,10 @@ def run_case21(results_dir: str = "results",
         ag = solver.alpha_g.values[owner]
         T_l_o = solver.T_l.values[owner]
         T_g_o = solver.T_g.values[owner]
-        U_l_y = abs(solver.U_l.values[owner, 1])
-        U_g_y = abs(solver.U_g.values[owner, 1])
-        dT_l_out = T_l_o - T_ref
-        dT_g_out = T_g_o - T_ref
-        E_out += (al * solver.rho_l * solver.cp_l * dT_l_out * U_l_y +
-                  ag * solver.rho_g * solver.cp_g * dT_g_out * U_g_y) * face.area
+        # 출구: 유출 질량유속 × alpha × cp × T_outlet
+        F_l = mf_l[fid]
+        F_g = mf_g[fid]
+        E_out += al * solver.cp_l * F_l * T_l_o + ag * solver.cp_g * F_g * T_g_o
 
     # 벽에서 투입된 총 열량: 가열벽 면적 × 열유속
     # 2D 격자 단위 깊이(1m) 기준: 가열벽 면적 = L (ny개 면, 각 면적 = L/ny)
@@ -247,10 +247,9 @@ def run_case21(results_dir: str = "results",
     m_dot_evap = max(m_dot_vapor_out - m_dot_vapor_in, 0.0)
     latent_heat_gain = m_dot_evap * solver.h_fg
 
-    # 에너지 보존: Q_wall = sensible gain + latent heat gain
+    # 에너지 보존: Q_wall ≈ 출구-입구 절대 엔탈피 차 (solver 보존량과 일치)
     energy_gain = E_out - E_in
-    total_energy_gain = energy_gain + latent_heat_gain
-    energy_ratio = abs(total_energy_gain - Q_wall_total) / max(abs(Q_wall_total), 1e-15)
+    energy_ratio = abs(energy_gain - Q_wall_total) / max(abs(Q_wall_total), 1e-15)
 
     # 수렴 판정: 정규화 잔차가 0.05 이하면 수렴으로 판정
     residuals = result.get('residuals', [])
@@ -298,7 +297,7 @@ def run_case21(results_dir: str = "results",
     print(f"  보이드율 축방향 증가: {void_increases} (inlet={alpha_g_mid[0]:.4f}, outlet={alpha_g_mid[-1]:.4f})")
     print(f"  출구 T_l={T_l_outlet:.1f} K, T_sat={T_sat:.1f} K, 근접: {near_sat}")
     print(f"  잠열 기여: {latent_heat_gain:.1f} W/m (증발 질량유량={m_dot_evap:.6f} kg/s/m)")
-    print(f"  에너지 보존 오차: {energy_ratio*100:.1f}% (잠열 포함)")
+    print(f"  에너지 보존 오차: {energy_ratio*100:.1f}%")
     print(f"  수렴: {converged}, 물리적 타당: {physical}")
 
     # 시각화 (2x2)
@@ -354,7 +353,7 @@ def run_case21(results_dir: str = "results",
     plt.close()
     print(f"  그래프 저장: {fig_path}")
 
-    energy_ok = energy_ratio < 0.40  # 에너지 보존 오차 40% 이하 (잠열 포함, 비등 조건)
+    energy_ok = energy_ratio < 0.10  # 에너지 보존 오차 10% 이하 (절대 엔탈피 기반)
     passed = converged and physical and energy_ok
     print(f"  에너지 보존 기준 충족: {energy_ok} (오차={energy_ratio*100:.1f}%)")
     print(f"  단조 온도 상승: {monotone_T_l}")

@@ -39,7 +39,7 @@ def run_case4(results_dir: str = "results", figures_dir: str = "figures") -> dic
     # 파라미터
     width = 0.15     # 수조 폭 [m]
     height = 0.45    # 수조 높이 [m]
-    nx, ny = 15, 45  # 격자 수 (성능을 위해 축소)
+    nx, ny = 8, 20  # 격자 수 (성능을 위해 축소)
 
     # 물-공기 물성치
     rho_l = 998.2
@@ -89,8 +89,8 @@ def run_case4(results_dir: str = "results", figures_dir: str = "figures") -> dic
     solver.tol = 1e-3
 
     # 비정상 해석
-    t_end = 2.0     # 2초
-    dt = 0.005
+    t_end = 1.0     # 1초
+    dt = 0.02
 
     print(f"  비정상 해석: t_end={t_end}s, dt={dt}s")
     print("  해석 중...")

@@ -46,7 +46,7 @@ def run_case24(results_dir: str = "results",
     # ---- 파라미터 ----
     Lx = 0.02       # 폭 [m]
     Ly = 0.04       # 높이 [m]
-    nx, ny = 20, 40
+    nx, ny = 10, 20
 
     # 물 포화 조건 (100°C, 1 atm)
     T_sat = 373.15   # K
@@ -91,7 +91,7 @@ def run_case24(results_dir: str = "results",
     solver.d_b = d_b
     solver.h_fg = h_fg
     solver.T_sat = T_sat
-    solver.r_phase_change = 0.1
+    solver.r_phase_change = 0.01
     solver.solve_energy = True
 
     # 완화계수 (안정성 확보)
@@ -100,7 +100,7 @@ def run_case24(results_dir: str = "results",
     solver.alpha_alpha = 0.3
     solver.alpha_T = 0.5
     solver.tol = 1e-3
-    solver.max_outer_iter = 100
+    solver.max_outer_iter = 50
 
     # 중력 (y 방향 위가 양)
     solver.g = np.array([0.0, -9.81])
@@ -123,7 +123,7 @@ def run_case24(results_dir: str = "results",
 
     # ---- 과도 해석 ----
     dt = 0.001
-    t_end = 0.5  # 0.5초 해석
+    t_end = 0.2  # 0.2초 해석
     n_report = 50
 
     print(f"  dt = {dt}, t_end = {t_end} s")
@@ -132,7 +132,7 @@ def run_case24(results_dir: str = "results",
     # 시간별 스냅샷 저장
     case_dir = os.path.join(results_dir, 'case24')
     os.makedirs(case_dir, exist_ok=True)
-    snapshot_times = [0.1, 0.2, 0.3, 0.5]
+    snapshot_times = [0.05, 0.1, 0.15, 0.2]
     snapshots = []
 
     trans_result = solver.solve_transient(

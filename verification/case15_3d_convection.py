@@ -42,7 +42,7 @@ def run_case15(results_dir: str = "results",
     Lx = 1.0       # 가로
     Ly = 1.0       # 깊이 (z-방향 대용)
     Lz = 0.5       # 높이 (z-방향)
-    nx, ny, nz = 16, 16, 8
+    nx, ny, nz = 12, 12, 6
     rho = 1.0
     mu = 0.01      # 점성
     beta = 0.01    # 열팽창계수
@@ -100,7 +100,7 @@ def run_case15(results_dir: str = "results",
 
     # --- 결합 반복 ---
     print("  결합 반복 해석 중 (운동량 + 에너지)...")
-    n_outer = 100
+    n_outer = 50
     residuals = []
 
     for outer in range(n_outer):

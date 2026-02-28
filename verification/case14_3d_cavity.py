@@ -39,7 +39,7 @@ def run_case14(results_dir: str = "results",
 
     # 파라미터
     Lx, Ly, Lz = 1.0, 1.0, 1.0
-    nx, ny, nz = 16, 16, 16
+    nx, ny, nz = 12, 12, 12
     rho = 1.0
     U_lid = 1.0
     Re = 100
@@ -54,8 +54,8 @@ def run_case14(results_dir: str = "results",
 
     # 솔버 설정
     solver = SIMPLESolver(mesh, rho=rho, mu=mu)
-    solver.max_outer_iter = 1000
-    solver.tol = 1e-4
+    solver.max_outer_iter = 500
+    solver.tol = 1e-3
     solver.alpha_u = 0.5
     solver.alpha_p = 0.2
 

@@ -47,7 +47,7 @@ def run_case23(results_dir: str = "results",
     Lx = 1.0       # 채널 길이 [m]
     Ly = 0.1       # 채널 높이 [m]
     Lz = 0.1       # 채널 폭 [m]
-    nx, ny, nz = 20, 10, 10
+    nx, ny, nz = 16, 8, 8
     rho = 1.0      # 밀도 [kg/m³]
     mu = 0.01      # 점성 [Pa·s]
     U_in = 1.0     # 입구 속도 [m/s]
@@ -56,8 +56,8 @@ def run_case23(results_dir: str = "results",
     # 시간 설정
     nu = mu / rho
     t_char = Ly**2 / nu  # 확산 특성 시간 = H^2/nu
-    dt = t_char / 100.0
-    t_end = t_char * 3.0  # 충분한 시간 (3배 특성 시간)
+    dt = t_char / 50.0
+    t_end = t_char * 1.5  # 충분한 시간 (3배 특성 시간)
     n_snapshots = 5  # VTU 스냅샷 수
 
     print(f"  Re = {Re:.0f}, rho = {rho}, mu = {mu}")

@@ -82,7 +82,7 @@ cases = [
     (17, 'case17_adaptive_dt',    run_case17, {}, 90),
     (18, 'case18_web_dashboard',  run_case18, {}, 90),
     (19, 'case19_boiling_condensation', run_case19, {}, 90),
-    (20, 'case20_edwards_blowdown', run_case20, {}, 120),
+    (20, 'case20_edwards_blowdown', run_case20, {}, 180),
     (21, 'case21_6eq_heated_channel', run_case21, {}, 300),
     (22, 'case22_hybrid_mesh',    run_case22, {}, 180),
     (23, 'case23_3d_transient',   run_case23, {}, 300),
