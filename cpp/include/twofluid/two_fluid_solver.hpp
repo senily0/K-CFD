@@ -38,6 +38,20 @@ public:
 
     double dt = 0.001;
 
+    // Physical limits (user-configurable, no hardcoded clipping)
+    double U_max = 1e6;       // velocity clamp [m/s] — set per problem
+    double T_min = 1.0;       // temperature floor [K]
+    double T_max = 1e5;       // temperature ceiling [K]
+    double alpha_max = 1.0;   // max gas volume fraction (1.0 = no restriction)
+
+    // Divergence detection
+    int divergence_count = 0;
+    int max_divergence = 5;   // stop after this many divergent steps
+
+    // Convection scheme: "upwind" or "muscl" (default: muscl for 2nd order)
+    std::string convection_scheme = "muscl";
+    std::string muscl_limiter = "van_leer";
+
     // Initialize
     void initialize(double alpha_g_init = 0.05);
 

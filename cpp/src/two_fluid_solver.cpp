@@ -437,6 +437,16 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     }
     convection_operator_upwind(mesh_, alpha_mf, system);
 
+    // MUSCL deferred correction for 2nd-order convection (C4 fix)
+    if (convection_scheme == "muscl") {
+        auto grad_phi = green_gauss_gradient(phi);
+        auto dc = muscl_deferred_correction(
+            mesh_, phi, alpha_mf, grad_phi, muscl_limiter);
+        for (int ci = 0; ci < n; ++ci) {
+            system.add_source(ci, dc[ci]);
+        }
+    }
+
     // Temporal term
     if (phi.old_values.has_value()) {
         for (int ci = 0; ci < n; ++ci) {
@@ -576,8 +586,10 @@ double TwoFluidSolver::solve_pressure_correction(const Eigen::VectorXd& mf_l,
         }
     }
 
-    // Reference pressure fix
-    system.add_diagonal(0, 1e10);
+    // Reference pressure fix — scaled to problem magnitude
+    double diag_max = system.diag.cwiseAbs().maxCoeff();
+    double p_ref_scale = std::max(diag_max * 1e3, 1.0);
+    system.add_diagonal(0, p_ref_scale);
 
     // Solve for p'
     Eigen::VectorXd p_prime = solve_linear_system(system, Eigen::VectorXd::Zero(n), "direct");
@@ -625,14 +637,13 @@ double TwoFluidSolver::solve_pressure_correction(const Eigen::VectorXd& mf_l,
         }
     }
 
-    // Velocity NaN/Inf cleanup and physical limit clipping
-    constexpr double U_MAX = 10.0;
+    // Velocity NaN/Inf cleanup with user-configurable limits
     for (auto* U_field : {&U_l_, &U_g_}) {
         for (int ci = 0; ci < n; ++ci) {
             for (int d = 0; d < ndim; ++d) {
                 double& v = U_field->values(ci, d);
                 if (!std::isfinite(v)) v = 0.0;
-                v = std::clamp(v, -U_MAX, U_MAX);
+                v = std::clamp(v, -U_max, U_max);
             }
         }
     }
@@ -687,9 +698,9 @@ double TwoFluidSolver::solve_volume_fraction(const Eigen::VectorXd& mf_g,
         alpha_g_.values = alpha_old;
     }
 
-    // Physical limits: clip to [0, 0.9]
+    // Physical limits: clip to [0, alpha_max] (user-configurable)
     for (int ci = 0; ci < n; ++ci) {
-        alpha_g_.values[ci] = std::clamp(alpha_g_.values[ci], 0.0, 0.9);
+        alpha_g_.values[ci] = std::clamp(alpha_g_.values[ci], 0.0, alpha_max);
     }
     alpha_l_.values = Eigen::VectorXd::Ones(n) - alpha_g_.values;
 
@@ -836,12 +847,12 @@ double TwoFluidSolver::solve_phase_energy(
     Eigen::VectorXd T_old_vals = T.values;
     T.values = solve_linear_system(system, T.values, "direct");
 
-    // NaN protection and temperature clipping
+    // NaN protection and temperature clipping (user-configurable limits)
     if (T.values.hasNaN() || !T.values.allFinite()) {
         T.values = T_old_vals;
     } else {
         for (int ci = 0; ci < n; ++ci) {
-            T.values[ci] = std::clamp(T.values[ci], 280.0, 450.0);
+            T.values[ci] = std::clamp(T.values[ci], T_min, T_max);
         }
     }
 

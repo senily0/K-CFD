@@ -51,7 +51,19 @@ LeePhaseChangeModel::LeePhaseChangeModel(
     const FVMesh& mesh, double T_sat, double r_evap, double r_cond,
     double L_latent, double rho_l, double rho_g)
     : T_sat(T_sat), r_evap(r_evap), r_cond(r_cond),
-      L_latent(L_latent), rho_l(rho_l), rho_g(rho_g), mesh_(mesh) {}
+      L_latent(L_latent), rho_l(rho_l), rho_g(rho_g), mesh_(mesh) {
+    // C6 fix: Warn if Lee model coefficients are outside typical range
+    if (r_evap < 1e-3 || r_evap > 100.0) {
+        std::cerr << "[WARNING] Lee r_evap=" << r_evap
+                  << " outside typical range [0.001, 100]. "
+                  << "Results are highly sensitive to this parameter.\n";
+    }
+    if (r_cond < 1e-3 || r_cond > 100.0) {
+        std::cerr << "[WARNING] Lee r_cond=" << r_cond
+                  << " outside typical range [0.001, 100]. "
+                  << "Results are highly sensitive to this parameter.\n";
+    }
+}
 
 Eigen::VectorXd LeePhaseChangeModel::compute_mass_transfer(
     const ScalarField& T, const ScalarField& alpha_l) const {
