@@ -238,14 +238,18 @@ FVMesh generate_channel_mesh(double Lx, double Ly, int nx, int ny) {
     auto raw = make_structured_quad_mesh(
         0.0, 0.0, Lx, Ly, nx, ny,
         "wall_bottom", "wall_top", "inlet", "outlet");
-    return build_fvmesh(raw);
+    auto mesh = build_fvmesh(raw);
+    mesh.build_boundary_face_cache();
+    return mesh;
 }
 
 FVMesh generate_cavity_mesh(double L, int n) {
     auto raw = make_structured_quad_mesh(
         0.0, 0.0, L, L, n, n,
         "wall_bottom", "lid", "wall_left", "wall_right");
-    return build_fvmesh(raw);
+    auto mesh = build_fvmesh(raw);
+    mesh.build_boundary_face_cache();
+    return mesh;
 }
 
 FVMesh generate_bfs_mesh(
@@ -288,7 +292,9 @@ FVMesh generate_bfs_mesh(
     }
     raw.bfaces = std::move(new_bfaces);
 
-    return build_fvmesh(raw);
+    auto mesh = build_fvmesh(raw);
+    mesh.build_boundary_face_cache();
+    return mesh;
 }
 
 } // namespace twofluid

@@ -19,14 +19,12 @@ double interpolation_weight(const FVMesh& mesh, int face_id) {
 
 double get_boundary_face_value(const ScalarField& phi, int face_id) {
     const FVMesh& mesh = phi.mesh();
-    for (const auto& [bname, fids] : mesh.boundary_patches) {
-        for (size_t i = 0; i < fids.size(); ++i) {
-            if (fids[i] == face_id) {
-                auto bit = phi.boundary_values.find(bname);
-                if (bit != phi.boundary_values.end()) {
-                    return bit->second(static_cast<int>(i));
-                }
-            }
+    auto cache_it = mesh.boundary_face_cache.find(face_id);
+    if (cache_it != mesh.boundary_face_cache.end()) {
+        auto& [bname, li] = cache_it->second;
+        auto bit = phi.boundary_values.find(bname);
+        if (bit != phi.boundary_values.end()) {
+            return bit->second(li);
         }
     }
     const Face& face = mesh.faces[face_id];

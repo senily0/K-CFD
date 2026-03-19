@@ -211,6 +211,7 @@ FVMesh generate_3d_channel_mesh(
         else mesh.n_boundary_faces++;
     }
 
+    mesh.build_boundary_face_cache();
     return mesh;
 }
 

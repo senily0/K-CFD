@@ -305,6 +305,7 @@ FVMesh AMRMesh::get_active_mesh() const {
         }
     }
 
+    mesh.build_boundary_face_cache();
     return mesh;
 }
 

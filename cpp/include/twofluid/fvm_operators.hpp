@@ -51,6 +51,12 @@ void convection_operator_upwind(const FVMesh& mesh,
 void temporal_operator(const FVMesh& mesh, double rho, double dt,
                        const Eigen::VectorXd& phi_old, FVMSystem& system);
 
+/// BDF2 temporal operator: (3*rho*V/(2*dt))*phi = (4*rho*V/(2*dt))*phi^n - (rho*V/(2*dt))*phi^{n-1}
+void temporal_operator_bdf2(const FVMesh& mesh, double rho, double dt,
+                             const Eigen::VectorXd& phi_old,      // phi^n
+                             const Eigen::VectorXd& phi_old_old,  // phi^{n-1}
+                             FVMSystem& system);
+
 /// Source term: S_P * V_P added to RHS.
 void source_term(const FVMesh& mesh, const Eigen::VectorXd& source_values,
                  FVMSystem& system);
@@ -69,6 +75,12 @@ void apply_boundary_conditions(
     const FVMesh& mesh, const ScalarField& phi, const ScalarField& gamma,
     const Eigen::VectorXd& mass_flux, FVMSystem& system,
     const std::unordered_map<std::string, BoundaryCondition>& bc_types);
+
+/// Diffusion with non-orthogonal correction (explicit correction on RHS)
+void diffusion_operator_corrected(const FVMesh& mesh, const ScalarField& gamma,
+                                   const ScalarField& phi,
+                                   FVMSystem& system,
+                                   int n_corrections = 1);
 
 /// Under-relaxation.
 void under_relax(FVMSystem& system, const ScalarField& phi, double alpha);

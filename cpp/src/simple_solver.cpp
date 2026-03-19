@@ -588,4 +588,49 @@ SolveResult SIMPLESolver::solve_steady() {
     return {false, max_iter, residuals, wall};
 }
 
+// ---------------------------------------------------------------------------
+// PISO transient step
+// ---------------------------------------------------------------------------
+
+SolveResult SIMPLESolver::solve_transient_step(double dt) {
+    auto t_start = std::chrono::high_resolution_clock::now();
+
+    int n = mesh_.n_cells;
+    int ndim = mesh_.ndim;
+    for (int c = 0; c < ndim; ++c) {
+        aP_[c] = Eigen::VectorXd::Ones(n);
+    }
+
+    std::vector<double> residuals;
+
+    // Momentum predictor: no under-relaxation for PISO
+    double saved_alpha_u = alpha_u;
+    alpha_u = 1.0;
+
+    Eigen::VectorXd mf = compute_face_mass_flux();
+
+    std::vector<double> res_mom;
+    for (int comp = 0; comp < ndim; ++comp) {
+        res_mom.push_back(solve_momentum(comp, mf));
+    }
+
+    alpha_u = saved_alpha_u;
+
+    // PISO correction loop
+    double res_p = 0.0;
+    for (int corr = 0; corr < piso_correctors; ++corr) {
+        mf = compute_face_mass_flux();
+        res_p = solve_pressure_correction(mf);
+    }
+
+    double res = std::max(*std::max_element(res_mom.begin(), res_mom.end()), res_p);
+    residuals.push_back(res);
+
+    auto t_end = std::chrono::high_resolution_clock::now();
+    double wall = std::chrono::duration<double>(t_end - t_start).count();
+
+    // PISO single-pass always "converges" per time step
+    return {true, 1, residuals, wall};
+}
+
 } // namespace twofluid

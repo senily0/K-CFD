@@ -25,16 +25,12 @@ double interp_weight(const FVMesh& mesh, int face_id) {
 
 double get_boundary_value(const ScalarField& phi, int face_id) {
     const FVMesh& mesh = phi.mesh();
-
-    for (const auto& [bname, fids] : mesh.boundary_patches) {
-        for (std::size_t i = 0; i < fids.size(); ++i) {
-            if (fids[i] == face_id) {
-                auto bv_it = phi.boundary_values.find(bname);
-                if (bv_it != phi.boundary_values.end()) {
-                    return bv_it->second[static_cast<int>(i)];
-                }
-                break;
-            }
+    auto cache_it = mesh.boundary_face_cache.find(face_id);
+    if (cache_it != mesh.boundary_face_cache.end()) {
+        auto& [bname, li] = cache_it->second;
+        auto bv_it = phi.boundary_values.find(bname);
+        if (bv_it != phi.boundary_values.end()) {
+            return bv_it->second[li];
         }
     }
     // Fallback: owner cell value
@@ -44,16 +40,12 @@ double get_boundary_value(const ScalarField& phi, int face_id) {
 Eigen::VectorXd get_boundary_vector_value(const VectorField& U, int face_id) {
     const FVMesh& mesh = U.mesh();
     int ndim = mesh.ndim;
-
-    for (const auto& [bname, fids] : mesh.boundary_patches) {
-        for (std::size_t i = 0; i < fids.size(); ++i) {
-            if (fids[i] == face_id) {
-                auto bv_it = U.boundary_values.find(bname);
-                if (bv_it != U.boundary_values.end()) {
-                    return bv_it->second.row(static_cast<int>(i)).transpose();
-                }
-                break;
-            }
+    auto cache_it = mesh.boundary_face_cache.find(face_id);
+    if (cache_it != mesh.boundary_face_cache.end()) {
+        auto& [bname, li] = cache_it->second;
+        auto bv_it = U.boundary_values.find(bname);
+        if (bv_it != U.boundary_values.end()) {
+            return bv_it->second.row(li).transpose();
         }
     }
     // Fallback: owner cell value

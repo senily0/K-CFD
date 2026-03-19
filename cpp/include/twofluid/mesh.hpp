@@ -44,6 +44,12 @@ public:
     std::unordered_map<std::string, std::vector<int>> boundary_patches;
     std::unordered_map<std::string, std::vector<int>> cell_zones;
 
+    /// Build face-to-boundary cache. Call after mesh construction.
+    void build_boundary_face_cache();
+
+    /// Lookup: face_id -> (patch_name, local_index). Empty string if internal.
+    std::unordered_map<int, std::pair<std::string, int>> boundary_face_cache;
+
     /// Construct an empty mesh with the given spatial dimension.
     explicit FVMesh(int ndim = 2);
 

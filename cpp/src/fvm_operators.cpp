@@ -180,6 +180,66 @@ void apply_boundary_conditions(
     }
 }
 
+void temporal_operator_bdf2(const FVMesh& mesh, double rho, double dt,
+                             const Eigen::VectorXd& phi_old,
+                             const Eigen::VectorXd& phi_old_old,
+                             FVMSystem& system) {
+    for (int ci = 0; ci < mesh.n_cells; ++ci) {
+        double vol = mesh.cells[ci].volume;
+        double coeff = rho * vol / (2.0 * dt);
+        system.add_diagonal(ci, 3.0 * coeff);
+        system.add_source(ci, 4.0 * coeff * phi_old(ci) - coeff * phi_old_old(ci));
+    }
+}
+
+void diffusion_operator_corrected(const FVMesh& mesh, const ScalarField& gamma,
+                                   const ScalarField& phi,
+                                   FVMSystem& system,
+                                   int n_corrections) {
+    for (int fid = 0; fid < mesh.n_faces; ++fid) {
+        const Face& face = mesh.faces[fid];
+        int owner = face.owner;
+
+        if (face.neighbour >= 0) {
+            int neighbour = face.neighbour;
+            Eigen::Vector3d xO = mesh.cells[owner].center;
+            Eigen::Vector3d xN = mesh.cells[neighbour].center;
+            Eigen::Vector3d delta = xN - xO;
+            double d_PN = delta.norm();
+            if (d_PN < 1e-30) continue;
+
+            double gamma_O = gamma.values(owner);
+            double gamma_N = gamma.values(neighbour);
+            double gamma_f = 0.0;
+            if (gamma_O + gamma_N > 1e-30) {
+                gamma_f = 2.0 * gamma_O * gamma_N / (gamma_O + gamma_N);
+            }
+
+            // Orthogonal distance: projection of delta onto face normal
+            double d_orth = std::abs(delta.dot(face.normal));
+            if (d_orth < 1e-30) d_orth = d_PN;
+
+            // Implicit orthogonal part
+            double coeff = gamma_f * face.area / d_orth;
+            system.add_diagonal(owner, coeff);
+            system.add_diagonal(neighbour, coeff);
+            system.add_off_diagonal(owner, neighbour, -coeff);
+            system.add_off_diagonal(neighbour, owner, -coeff);
+
+            // Explicit non-orthogonal correction on RHS
+            if (n_corrections > 0) {
+                double phi_diff = phi.values(neighbour) - phi.values(owner);
+                // cross-diffusion term: gamma_f * A_f * (phi_N - phi_O) * (1/d_orth - 1/d_PN)
+                double correction = gamma_f * face.area * phi_diff
+                                    * (1.0 / d_orth - 1.0 / d_PN);
+                system.add_source(owner, correction);
+                system.add_source(neighbour, -correction);
+            }
+        }
+        // Boundary faces handled in apply_boundary_conditions
+    }
+}
+
 void under_relax(FVMSystem& system, const ScalarField& phi, double alpha) {
     if (alpha >= 1.0) return;
     for (int ci = 0; ci < system.n; ++ci) {

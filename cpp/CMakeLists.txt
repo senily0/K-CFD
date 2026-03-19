@@ -22,6 +22,7 @@ add_library(twofluid_core STATIC
     src/interpolation.cpp
     src/simple_solver.cpp
     src/turbulence.cpp
+    src/turbulence_sst.cpp
     src/closure.cpp
     src/two_fluid_solver.cpp
     src/vtk_writer.cpp
@@ -36,6 +37,8 @@ add_library(twofluid_core STATIC
     src/mesh_generator_3d.cpp
     src/chemistry.cpp
     src/hybrid_mesh_generator.cpp
+    src/steam_tables.cpp
+    src/mesh_reader.cpp
 )
 target_include_directories(twofluid_core PUBLIC
     include

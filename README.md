@@ -48,6 +48,12 @@ mingw32-make -j4
 | | 3D 생성기 | `mesh_generator_3d` (채널, 덕트, 캐비티) |
 | | 혼합 메쉬 | `hybrid_mesh_generator` (Hex/Tet) |
 | | 적응 격자 세분화 | `amr` (AMRMesh, 오차추정) |
+| | GMSH 메쉬 리더 | `mesh_reader` (.msh 2.2 ASCII) |
+| **물리 모델** | k-ε 난류 | `turbulence` |
+| | **k-ω SST 난류** | `turbulence_sst` (Menter 1994, F1/F2 블렌딩) |
+| | 계면 폐합 관계 | `closure` (Schiller-Naumann, **Grace, Tomiyama, Ishii-Zuber** 항력) |
+| | **계면력** | `closure` (**Tomiyama 양력, Antal 벽윤활, Burns 난류분산**) |
+| | IAPWS-IF97 증기표 | `steam_tables` (Region 1/2, 포화선, 물성치) |
 | **I/O** | VTU 출력 | `vtk_writer` |
 | | Python 바인딩 | `bindings` (pybind11) |
 
@@ -70,31 +76,31 @@ mingw32-make -j4
 
 | ID | 문제 | 위치 | 상태 |
 |----|------|------|------|
-| C1 | **속도 하드코딩 클리핑 (10 m/s)** — 증기관, 노즐 등 고속 유동 불가 | `two_fluid_solver.cpp` | TODO |
-| C2 | **온도 하드코딩 클리핑 [280, 450] K** — PWR(573K), 극저온, 용융염 불가 | `two_fluid_solver.cpp` | TODO |
-| C3 | **체적분율 상한 0.9 고정** — LOCA, dry-out, 분리류 불가 | `two_fluid_solver.cpp` | TODO |
-| C4 | **1차 풍상차분만 사용** — MUSCL 존재하나 미연결. 과도한 수치확산 | `fvm_operators.cpp` | TODO |
-| C5 | **Rhie-Chow 보간 미구현** — 체커보드 압력 진동, 모든 압력장 신뢰불가 | `simple_solver.cpp`, `two_fluid_solver.cpp` | TODO |
-| C6 | **Lee 모델 계수 검증 없음** — 0.001~100+ 범위, 경고 없이 오류 전파 | `phase_change.cpp` | TODO |
-| C7 | **압력 기준점 1e10 대각 고정** — 조건수 파괴, 스케일 무관 하드코딩 | `two_fluid_solver.cpp` | TODO |
+| C1 | ~~속도 하드코딩 클리핑 (10 m/s)~~ → 사용자 설정 `U_max` | `two_fluid_solver.cpp` | **DONE** |
+| C2 | ~~온도 하드코딩 클리핑 [280, 450] K~~ → 사용자 설정 `T_min/T_max` | `two_fluid_solver.cpp` | **DONE** |
+| C3 | ~~체적분율 상한 0.9 고정~~ → 사용자 설정 `alpha_max=1.0` | `two_fluid_solver.cpp` | **DONE** |
+| C4 | ~~1차 풍상차분만 사용~~ → MUSCL 2차 대류 기본값 연결 | `two_fluid_solver.cpp` | **DONE** |
+| C5 | ~~Rhie-Chow 보간 미구현~~ → aP 기반 Rhie-Chow 추가 | `simple_solver.cpp` | **DONE** |
+| C6 | ~~Lee 모델 계수 검증 없음~~ → 범위 경고 추가 | `phase_change.cpp` | **DONE** |
+| C7 | ~~압력 기준점 1e10 대각 고정~~ → 문제 스케일 비례 | `two_fluid_solver.cpp` | **DONE** |
 
 ### HIGH — 정확도/견고성의 중대한 제한
 
 | ID | 문제 | 상태 |
 |----|------|------|
-| H1 | **표준 k-ε만 구현** — 분리류 과소예측. k-ω SST 필요 | TODO |
-| H2 | **벽함수만 (high-Re)** — y+ 모니터링 없음, Low-Re 모델 없음 | TODO |
+| H1 | ~~표준 k-ε만 구현~~ → **k-ω SST 추가** (Menter 1994, F1/F2, y+ 모니터링) | **DONE** |
+| H2 | **벽함수만 (high-Re)** — Low-Re 모델 없음 (SST에 y+ 모니터링 추가됨) | TODO |
 | H3 | **SparseLU 직접 솔버** — >100k셀 메모리 부족. AMG 필요 | TODO |
-| H4 | **Schiller-Naumann 항력만** — Grace, Tomiyama, Ishii-Zuber 미구현 | TODO |
-| H5 | **계면력: 항력만** — 양력, 벽윤활력, 난류분산력 없음 | TODO |
+| H4 | ~~Schiller-Naumann 항력만~~ → **Grace, Tomiyama, Ishii-Zuber 추가** | **DONE** |
+| H5 | ~~계면력: 항력만~~ → **Tomiyama 양력, Antal 벽윤활, Burns 난류분산 추가** | **DONE** |
 | H6 | **표면장력 없음** — CSF, 모세관 압력 미구현 | TODO |
-| H7 | **후방 오일러만 (1차 시간적분)** — BDF2, Crank-Nicolson 없음 | TODO |
+| H7 | ~~후방 오일러만~~ → **BDF2 시간적분 추가** (`temporal_operator_bdf2`) | **DONE** |
 | H8 | **병렬 컴퓨팅 없음** — MPI/OpenMP 전무 | TODO |
-| H9 | **SIMPLE만** — SIMPLEC, PISO 미구현 | TODO |
-| H10 | **비직교 보정 없음** (fvm_operators 내) | TODO |
-| H11 | **경계면 탐색 O(n²)** — 대규모 격자 성능 붕괴 | TODO |
-| H12 | **물성치 상수 고정** — 온도/압력 의존 없음. IAPWS-IF97 필요 | TODO |
-| H13 | **메쉬 파일 읽기 불가** — CGNS, Fluent .msh, GMSH 리더 없음 | TODO |
+| H9 | ~~SIMPLE만~~ → **PISO 알고리즘 추가** (`solve_transient_step`) | **DONE** |
+| H10 | ~~비직교 보정 없음~~ → **비직교 보정 확산 연산자 추가** (`diffusion_operator_corrected`) | **DONE** |
+| H11 | ~~경계면 탐색 O(n²)~~ → **해시맵 캐시** (`build_boundary_face_cache`) | **DONE** |
+| H12 | ~~물성치 상수 고정~~ → **IAPWS-IF97 증기표** (Region 1/2, 포화선, 수송물성) | **DONE** |
+| H13 | ~~메쉬 파일 읽기 불가~~ → **GMSH .msh 2.2 리더** (2D/3D, tri/quad/tet/hex) | **DONE** |
 
 ### MEDIUM — 일부 경우 허용 가능하나 범용성 제한
 

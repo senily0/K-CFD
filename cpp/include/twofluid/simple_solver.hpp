@@ -11,6 +11,9 @@
 
 namespace twofluid {
 
+/// PISO algorithm mode for transient simulations (no outer iterations needed)
+enum class PVCoupling { SIMPLE, PISO };
+
 struct SolveResult {
     bool converged;
     int iterations;
@@ -28,6 +31,10 @@ public:
     int max_iter = 500;
     double tol = 1e-5;
 
+    // PISO settings
+    PVCoupling pv_coupling = PVCoupling::SIMPLE;
+    int piso_correctors = 2;  // number of PISO correction steps
+
     // Boundary conditions
     void set_inlet(const std::string& patch, const Eigen::MatrixXd& U_vals);
     void set_wall(const std::string& patch);
@@ -39,6 +46,9 @@ public:
 
     // Solve
     SolveResult solve_steady();
+
+    /// Single PISO time step (transient)
+    SolveResult solve_transient_step(double dt);
 
     // Access fields
     VectorField& velocity() { return U_; }
