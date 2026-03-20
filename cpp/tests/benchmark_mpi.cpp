@@ -12,7 +12,8 @@
  *   - Rank 0 generates full mesh and partitions with RCB
  *   - Partition IDs are broadcast to all ranks
  *   - Each rank extracts its LOCAL submesh
- *   - Outer Schwarz loop: local SIMPLE iterations + ghost exchange
+ *   - Outer Schwarz loop: local SIMPLE iterations + MPI ghost exchange
+ *   - mpi_interface BCs are Dirichlet, updated with received neighbor values
  *   - Global convergence via MPI_Allreduce
  *
  * Hardware target: Intel Core Ultra 5 125H (14C/18T), 32GB RAM
@@ -23,11 +24,13 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
 #include <set>
+#include <numeric>
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -44,171 +47,50 @@
 using namespace twofluid;
 
 // ---------------------------------------------------------------------------
-// Helper: remap ghost layers from global to local cell indices
+// Ghost exchange data structure for mpi_interface boundary faces.
+//
+// For each mpi_interface face on the local clean_mesh, we record:
+//   - local_face_id: face index in clean_mesh
+//   - local_owner_cell: local cell that owns this face
+//   - remote_rank: the MPI rank that owns the cell on the other side
+//   - remote_global_cell: the global cell ID of the remote neighbor
+//   - patch_local_idx: index of this face within the "mpi_interface" patch
 // ---------------------------------------------------------------------------
-struct LocalGhostLayer {
-    std::vector<int> send_cells;   // local indices of cells to send
-    std::vector<int> recv_cells;   // local indices of ghost cells to write into
-    int neighbor_rank;
+struct MPIGhostFace {
+    int local_face_id;
+    int local_owner_cell;
+    int remote_rank;
+    int remote_global_cell;
+    int patch_local_idx;
 };
 
-static std::vector<LocalGhostLayer> build_local_ghost_layers(
-    const FVMesh& global_mesh,
-    const std::vector<int>& part_ids,
-    int my_rank,
-    const std::unordered_map<int, int>& global_to_local)
-{
-    // Scan internal faces for cross-partition boundaries
-    std::unordered_map<int, LocalGhostLayer> layer_map;
-
-    for (int fi = 0; fi < global_mesh.n_internal_faces; ++fi) {
-        const Face& f = global_mesh.faces[fi];
-        const int owner_part = part_ids[f.owner];
-        const int nbr_part   = part_ids[f.neighbour];
-
-        if (owner_part == nbr_part) continue;
-
-        if (owner_part == my_rank) {
-            auto it_own = global_to_local.find(f.owner);
-            auto it_nbr = global_to_local.find(f.neighbour);
-            if (it_own != global_to_local.end() && it_nbr != global_to_local.end()) {
-                auto& layer = layer_map[nbr_part];
-                layer.neighbor_rank = nbr_part;
-                layer.send_cells.push_back(it_own->second);
-                layer.recv_cells.push_back(it_nbr->second);
-            }
-        } else if (nbr_part == my_rank) {
-            auto it_own = global_to_local.find(f.owner);
-            auto it_nbr = global_to_local.find(f.neighbour);
-            if (it_own != global_to_local.end() && it_nbr != global_to_local.end()) {
-                auto& layer = layer_map[owner_part];
-                layer.neighbor_rank = owner_part;
-                layer.send_cells.push_back(it_nbr->second);
-                layer.recv_cells.push_back(it_own->second);
-            }
-        }
-    }
-
-    // Deduplicate
-    for (auto& [rank, layer] : layer_map) {
-        std::sort(layer.send_cells.begin(), layer.send_cells.end());
-        layer.send_cells.erase(
-            std::unique(layer.send_cells.begin(), layer.send_cells.end()),
-            layer.send_cells.end());
-        std::sort(layer.recv_cells.begin(), layer.recv_cells.end());
-        layer.recv_cells.erase(
-            std::unique(layer.recv_cells.begin(), layer.recv_cells.end()),
-            layer.recv_cells.end());
-    }
-
-    std::vector<LocalGhostLayer> result;
-    result.reserve(layer_map.size());
-    for (auto& [rank, layer] : layer_map) {
-        result.push_back(std::move(layer));
-    }
-    // Sort by neighbor rank for deterministic send/recv ordering
-    std::sort(result.begin(), result.end(),
-              [](const LocalGhostLayer& a, const LocalGhostLayer& b) {
-                  return a.neighbor_rank < b.neighbor_rank;
-              });
-    return result;
-}
+// ---------------------------------------------------------------------------
+// Per-neighbor exchange buffer structure.
+// After setup, for each neighbor rank we know:
+//   - which local cells to pack and send (their values are needed by neighbor)
+//   - which patch face indices to write received values into
+// ---------------------------------------------------------------------------
+struct NeighborExchange {
+    int remote_rank;
+    // Cells whose values we send TO this neighbor (local cell indices).
+    // Order matches what the neighbor expects to receive.
+    std::vector<int> send_cells;
+    // For each value we RECEIVE from this neighbor, the patch-local index
+    // in the "mpi_interface" boundary_values array where we write it.
+    std::vector<int> recv_patch_indices;
+    // For each value we receive, the local owner cell (for blending).
+    std::vector<int> recv_owner_cells;
+};
 
 // ---------------------------------------------------------------------------
-// Helper: exchange ghost cell scalars (one component at a time)
-// ---------------------------------------------------------------------------
-static void exchange_ghost_scalar(
-    MPIComm& comm,
-    Eigen::VectorXd& values,
-    const std::vector<LocalGhostLayer>& ghost_layers)
-{
-#ifdef USE_MPI
-    for (const auto& layer : ghost_layers) {
-        const int nbr = layer.neighbor_rank;
-
-        // Pack send buffer
-        std::vector<double> send_buf(layer.send_cells.size());
-        for (std::size_t i = 0; i < layer.send_cells.size(); ++i) {
-            send_buf[i] = values[layer.send_cells[i]];
-        }
-        std::vector<double> recv_buf(layer.recv_cells.size());
-
-        if (nbr < comm.rank()) {
-            MPI_Send(send_buf.data(), static_cast<int>(send_buf.size()),
-                     MPI_DOUBLE, nbr, 200, MPI_COMM_WORLD);
-            MPI_Recv(recv_buf.data(), static_cast<int>(recv_buf.size()),
-                     MPI_DOUBLE, nbr, 200, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        } else {
-            MPI_Recv(recv_buf.data(), static_cast<int>(recv_buf.size()),
-                     MPI_DOUBLE, nbr, 200, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Send(send_buf.data(), static_cast<int>(send_buf.size()),
-                     MPI_DOUBLE, nbr, 200, MPI_COMM_WORLD);
-        }
-
-        // Unpack into ghost cells
-        for (std::size_t i = 0; i < layer.recv_cells.size(); ++i) {
-            if (layer.recv_cells[i] < values.size()) {
-                values[layer.recv_cells[i]] = recv_buf[i];
-            }
-        }
-    }
-#else
-    (void)comm; (void)values; (void)ghost_layers;
-#endif
-}
-
-// ---------------------------------------------------------------------------
-// Helper: exchange ghost cell vectors (velocity, ndim components)
-// ---------------------------------------------------------------------------
-static void exchange_ghost_vector(
-    MPIComm& comm,
-    Eigen::MatrixXd& values,
-    const std::vector<LocalGhostLayer>& ghost_layers)
-{
-#ifdef USE_MPI
-    const int ndim = static_cast<int>(values.cols());
-    for (const auto& layer : ghost_layers) {
-        const int nbr = layer.neighbor_rank;
-
-        std::vector<double> send_buf(layer.send_cells.size() * ndim);
-        for (std::size_t i = 0; i < layer.send_cells.size(); ++i) {
-            for (int d = 0; d < ndim; ++d) {
-                send_buf[i * ndim + d] = values(layer.send_cells[i], d);
-            }
-        }
-        std::vector<double> recv_buf(layer.recv_cells.size() * ndim);
-
-        if (nbr < comm.rank()) {
-            MPI_Send(send_buf.data(), static_cast<int>(send_buf.size()),
-                     MPI_DOUBLE, nbr, 201, MPI_COMM_WORLD);
-            MPI_Recv(recv_buf.data(), static_cast<int>(recv_buf.size()),
-                     MPI_DOUBLE, nbr, 201, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        } else {
-            MPI_Recv(recv_buf.data(), static_cast<int>(recv_buf.size()),
-                     MPI_DOUBLE, nbr, 201, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Send(send_buf.data(), static_cast<int>(send_buf.size()),
-                     MPI_DOUBLE, nbr, 201, MPI_COMM_WORLD);
-        }
-
-        for (std::size_t i = 0; i < layer.recv_cells.size(); ++i) {
-            if (layer.recv_cells[i] < values.rows()) {
-                for (int d = 0; d < ndim; ++d) {
-                    values(layer.recv_cells[i], d) = recv_buf[i * ndim + d];
-                }
-            }
-        }
-    }
-#else
-    (void)comm; (void)values; (void)ghost_layers;
-#endif
-}
-
-// ---------------------------------------------------------------------------
-// Helper: set BCs on local solver based on which patches exist
+// Helper: set BCs on local solver based on which patches exist.
+// mpi_interface is set as Dirichlet (inlet) for velocity so that the
+// solver uses the boundary_values we provide (updated each outer iteration).
+// Pressure at mpi_interface uses zero-gradient (Neumann) -- the pressure
+// boundary_values are updated directly on the field each outer iteration.
 // ---------------------------------------------------------------------------
 static void set_local_bcs(SIMPLESolver& solver, FVMesh& local_mesh,
                           double Ly, double Lz, double U_mean) {
-    // Check which boundary patches exist on this local mesh
     auto& patches = local_mesh.boundary_patches;
 
     if (patches.count("inlet") && !patches["inlet"].empty()) {
@@ -240,11 +122,334 @@ static void set_local_bcs(SIMPLESolver& solver, FVMesh& local_mesh,
     if (patches.count("wall_back") && !patches["wall_back"].empty())
         solver.set_wall("wall_back");
 
-    // mpi_interface patches: treat as zero-gradient (outlet-like) for the solver.
-    // This acts as a Neumann BC at partition boundaries.
+    // mpi_interface: Dirichlet velocity (values updated from neighbor each
+    // outer iteration) and zero-gradient pressure (set_inlet gives exactly
+    // this: bc_u_=dirichlet, bc_p_=zero_gradient).
     if (patches.count("mpi_interface") && !patches["mpi_interface"].empty()) {
-        solver.set_outlet("mpi_interface", 0.0);
+        int n_mpi = static_cast<int>(patches["mpi_interface"].size());
+        Eigen::MatrixXd mpi_U = Eigen::MatrixXd::Zero(n_mpi, 3);
+        solver.set_inlet("mpi_interface", mpi_U);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Build the per-face ghost mapping during clean_mesh construction.
+// Returns a vector of MPIGhostFace, one per mpi_interface face.
+// ---------------------------------------------------------------------------
+struct CleanMeshResult {
+    FVMesh mesh;
+    std::vector<MPIGhostFace> ghost_faces;
+    std::unordered_map<int, int> gcell_to_local;  // global cell -> local cell
+};
+
+static CleanMeshResult build_clean_mesh(
+    const FVMesh& global_mesh,
+    const std::vector<int>& part_ids,
+    int my_rank)
+{
+    CleanMeshResult result;
+    FVMesh& clean_mesh = result.mesh;
+    clean_mesh = FVMesh(3);
+
+    // Collect owned global cell IDs
+    std::vector<int> owned_global;
+    for (int ci = 0; ci < global_mesh.n_cells; ++ci) {
+        if (part_ids[ci] == my_rank) owned_global.push_back(ci);
+    }
+
+    // Collect used nodes
+    std::set<int> used_nodes;
+    for (int ci : owned_global) {
+        for (int nid : global_mesh.cells[ci].nodes) used_nodes.insert(nid);
+    }
+
+    // Remap nodes
+    std::unordered_map<int, int> node_map;
+    int new_nid = 0;
+    clean_mesh.nodes.resize(used_nodes.size(), 3);
+    for (int old_nid : used_nodes) {
+        node_map[old_nid] = new_nid;
+        clean_mesh.nodes.row(new_nid) = global_mesh.nodes.row(old_nid);
+        new_nid++;
+    }
+
+    // Create cells
+    clean_mesh.n_cells = static_cast<int>(owned_global.size());
+    clean_mesh.cells.resize(clean_mesh.n_cells);
+    auto& gcell_to_local = result.gcell_to_local;
+    for (int li = 0; li < clean_mesh.n_cells; ++li) {
+        int gi = owned_global[li];
+        gcell_to_local[gi] = li;
+        auto& cell = clean_mesh.cells[li];
+        cell.center = global_mesh.cells[gi].center;
+        cell.volume = global_mesh.cells[gi].volume;
+        for (int nid : global_mesh.cells[gi].nodes) {
+            cell.nodes.push_back(node_map[nid]);
+        }
+    }
+
+    // Helper to add a face to clean_mesh and track mpi_interface ghost info.
+    // global_face_idx: the index in global_mesh.faces this came from.
+    // remote_global_cell: the global cell ID on the other side (if mpi_interface).
+    // remote_rank_id: the rank owning the remote cell (if mpi_interface).
+    auto add_face = [&](const Face& gf, int local_owner, int local_neighbour,
+                        Vec3 normal, const std::string& boundary_tag,
+                        int remote_global_cell, int remote_rank_id) {
+        int fid = static_cast<int>(clean_mesh.faces.size());
+        Face lf;
+        lf.owner = local_owner;
+        lf.neighbour = local_neighbour;
+        lf.area = gf.area;
+        lf.normal = normal;
+        lf.center = gf.center;
+        lf.boundary_tag = boundary_tag;
+        for (int nid : gf.nodes) {
+            auto nit = node_map.find(nid);
+            if (nit != node_map.end()) lf.nodes.push_back(nit->second);
+        }
+        clean_mesh.cells[local_owner].faces.push_back(fid);
+        if (local_neighbour >= 0) {
+            clean_mesh.cells[local_neighbour].faces.push_back(fid);
+        }
+        clean_mesh.faces.push_back(lf);
+
+        // If this is an mpi_interface face, record ghost mapping.
+        // patch_local_idx will be set later after we build boundary_patches.
+        if (boundary_tag == "mpi_interface") {
+            MPIGhostFace gf_info;
+            gf_info.local_face_id = fid;
+            gf_info.local_owner_cell = local_owner;
+            gf_info.remote_rank = remote_rank_id;
+            gf_info.remote_global_cell = remote_global_cell;
+            gf_info.patch_local_idx = -1;  // set later
+            result.ghost_faces.push_back(gf_info);
+        }
+    };
+
+    // Pass 1: faces where owner is owned
+    for (int fi = 0; fi < global_mesh.n_faces; ++fi) {
+        const Face& gf = global_mesh.faces[fi];
+        auto it_o = gcell_to_local.find(gf.owner);
+        if (it_o == gcell_to_local.end()) continue;
+
+        auto it_n = gcell_to_local.find(gf.neighbour);
+        if (gf.neighbour >= 0 && it_n != gcell_to_local.end()) {
+            // Internal face (both cells owned)
+            add_face(gf, it_o->second, it_n->second, gf.normal,
+                     gf.boundary_tag, -1, -1);
+        } else if (gf.neighbour >= 0 && it_n == gcell_to_local.end()) {
+            // Cross-partition face: neighbour not owned -> mpi_interface
+            int remote_rank = part_ids[gf.neighbour];
+            add_face(gf, it_o->second, -1, gf.normal,
+                     "mpi_interface", gf.neighbour, remote_rank);
+        } else {
+            // Original boundary face (neighbour == -1)
+            add_face(gf, it_o->second, -1, gf.normal,
+                     gf.boundary_tag, -1, -1);
+        }
+    }
+
+    // Pass 2: faces where neighbour is owned but owner is not
+    for (int fi = 0; fi < global_mesh.n_faces; ++fi) {
+        const Face& gf = global_mesh.faces[fi];
+        if (gf.neighbour < 0) continue;
+        auto it_o = gcell_to_local.find(gf.owner);
+        auto it_n = gcell_to_local.find(gf.neighbour);
+        if (it_o == gcell_to_local.end() && it_n != gcell_to_local.end()) {
+            // Flip normal since we are making the neighbour the owner
+            Vec3 flipped_normal(-gf.normal[0], -gf.normal[1], -gf.normal[2]);
+            int remote_rank = part_ids[gf.owner];
+            add_face(gf, it_n->second, -1, flipped_normal,
+                     "mpi_interface", gf.owner, remote_rank);
+        }
+    }
+
+    // Finalize mesh counts
+    clean_mesh.n_faces = static_cast<int>(clean_mesh.faces.size());
+    clean_mesh.n_internal_faces = 0;
+    clean_mesh.n_boundary_faces = 0;
+    for (auto& f : clean_mesh.faces) {
+        if (f.neighbour >= 0) clean_mesh.n_internal_faces++;
+        else clean_mesh.n_boundary_faces++;
+    }
+
+    // Build boundary patches from face tags
+    for (int fi = 0; fi < clean_mesh.n_faces; ++fi) {
+        auto& f = clean_mesh.faces[fi];
+        if (f.neighbour < 0 && !f.boundary_tag.empty()) {
+            clean_mesh.boundary_patches[f.boundary_tag].push_back(fi);
+        }
+    }
+    clean_mesh.build_boundary_face_cache();
+
+    // Now set patch_local_idx on each ghost face.
+    // For each mpi_interface face in ghost_faces, find its index within the
+    // "mpi_interface" boundary patch.
+    if (clean_mesh.boundary_patches.count("mpi_interface")) {
+        const auto& mpi_fids = clean_mesh.boundary_patches["mpi_interface"];
+        // Build reverse lookup: face_id -> patch local index
+        std::unordered_map<int, int> face_to_patch_idx;
+        for (int i = 0; i < static_cast<int>(mpi_fids.size()); ++i) {
+            face_to_patch_idx[mpi_fids[i]] = i;
+        }
+        for (auto& gf : result.ghost_faces) {
+            auto it = face_to_patch_idx.find(gf.local_face_id);
+            if (it != face_to_patch_idx.end()) {
+                gf.patch_local_idx = it->second;
+            }
+        }
+    }
+
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// Build the per-neighbor exchange structures using MPI communication.
+//
+// Each rank has a list of MPIGhostFace entries saying "I need the value of
+// global cell X from rank R". We need to tell rank R which of its local
+// cells to pack. We do this by:
+//   1. Each rank groups its ghost faces by remote_rank.
+//   2. For each neighbor, exchange the list of global cell IDs needed.
+//   3. Each rank looks up the local cell index for each requested global cell
+//      and builds a send_cells list in the order the remote expects.
+// ---------------------------------------------------------------------------
+static std::vector<NeighborExchange> build_exchange_maps(
+    MPIComm& comm,
+    const std::vector<MPIGhostFace>& ghost_faces,
+    const std::unordered_map<int, int>& gcell_to_local)
+{
+    // Group ghost faces by remote rank
+    std::map<int, std::vector<const MPIGhostFace*>> by_rank;
+    for (const auto& gf : ghost_faces) {
+        by_rank[gf.remote_rank].push_back(&gf);
+    }
+
+    std::vector<NeighborExchange> exchanges;
+
+#ifdef USE_MPI
+    for (auto& [remote_rank, faces] : by_rank) {
+        NeighborExchange ex;
+        ex.remote_rank = remote_rank;
+
+        int n_need = static_cast<int>(faces.size());
+
+        // Pack the global cell IDs we need from this neighbor
+        std::vector<int> need_global_cells(n_need);
+        ex.recv_patch_indices.resize(n_need);
+        ex.recv_owner_cells.resize(n_need);
+        for (int i = 0; i < n_need; ++i) {
+            need_global_cells[i] = faces[i]->remote_global_cell;
+            ex.recv_patch_indices[i] = faces[i]->patch_local_idx;
+            ex.recv_owner_cells[i] = faces[i]->local_owner_cell;
+        }
+
+        // Exchange counts first
+        int n_they_need = 0;
+        MPI_Sendrecv(&n_need, 1, MPI_INT, remote_rank, 400,
+                     &n_they_need, 1, MPI_INT, remote_rank, 400,
+                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        // Exchange the global cell ID lists
+        std::vector<int> they_need_global_cells(n_they_need);
+        MPI_Sendrecv(need_global_cells.data(), n_need, MPI_INT, remote_rank, 401,
+                     they_need_global_cells.data(), n_they_need, MPI_INT, remote_rank, 401,
+                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        // Build send_cells: for each global cell the neighbor needs, look up
+        // the local cell index on THIS rank.
+        ex.send_cells.resize(n_they_need);
+        for (int i = 0; i < n_they_need; ++i) {
+            auto it = gcell_to_local.find(they_need_global_cells[i]);
+            if (it != gcell_to_local.end()) {
+                ex.send_cells[i] = it->second;
+            } else {
+                // This should not happen if partitioning is correct
+                ex.send_cells[i] = 0;
+            }
+        }
+
+        exchanges.push_back(std::move(ex));
+    }
+#else
+    (void)comm; (void)ghost_faces; (void)gcell_to_local;
+#endif
+
+    return exchanges;
+}
+
+// ---------------------------------------------------------------------------
+// Perform the actual ghost value exchange and update mpi_interface BCs.
+//
+// For each neighbor:
+//   1. Pack this rank's cell values (u,v,w,p) at send_cells
+//   2. MPI_Sendrecv with the neighbor
+//   3. Unpack received values into the velocity and pressure boundary_values
+//      at the mpi_interface patch indices
+// ---------------------------------------------------------------------------
+static void exchange_interface_values(
+    MPIComm& comm,
+    SIMPLESolver& solver,
+    const std::vector<NeighborExchange>& exchanges)
+{
+#ifdef USE_MPI
+    for (const auto& ex : exchanges) {
+        const int n_send = static_cast<int>(ex.send_cells.size());
+        const int n_recv = static_cast<int>(ex.recv_patch_indices.size());
+
+        // Pack send buffer: 4 doubles per cell (u, v, w, p)
+        std::vector<double> send_buf(n_send * 4);
+        for (int i = 0; i < n_send; ++i) {
+            int ci = ex.send_cells[i];
+            send_buf[i * 4 + 0] = solver.velocity().values(ci, 0);
+            send_buf[i * 4 + 1] = solver.velocity().values(ci, 1);
+            send_buf[i * 4 + 2] = solver.velocity().values(ci, 2);
+            send_buf[i * 4 + 3] = solver.pressure().values(ci);
+        }
+
+        std::vector<double> recv_buf(n_recv * 4);
+
+        // Use rank ordering to avoid deadlock: lower rank sends first
+        if (comm.rank() < ex.remote_rank) {
+            MPI_Send(send_buf.data(), n_send * 4, MPI_DOUBLE,
+                     ex.remote_rank, 500, MPI_COMM_WORLD);
+            MPI_Recv(recv_buf.data(), n_recv * 4, MPI_DOUBLE,
+                     ex.remote_rank, 500, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        } else {
+            MPI_Recv(recv_buf.data(), n_recv * 4, MPI_DOUBLE,
+                     ex.remote_rank, 500, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Send(send_buf.data(), n_send * 4, MPI_DOUBLE,
+                     ex.remote_rank, 500, MPI_COMM_WORLD);
+        }
+
+        // Unpack into mpi_interface boundary_values with under-relaxation.
+        // Velocity BC is Dirichlet (set_inlet), so the solver uses these
+        // boundary_values as the face value in the momentum equation.
+        // Pressure BC is zero-gradient (set_inlet gives bc_p_=zero_gradient),
+        // so the solver uses the owner cell value -- we do NOT update pressure
+        // boundary_values to avoid destabilizing the pressure equation.
+        auto u_bv_it = solver.velocity().boundary_values.find("mpi_interface");
+        const double relax = 0.3;
+
+        for (int i = 0; i < n_recv; ++i) {
+            int pi = ex.recv_patch_indices[i];
+            if (pi < 0) continue;
+
+            double recv_u = recv_buf[i * 4 + 0];
+            double recv_v = recv_buf[i * 4 + 1];
+            double recv_w = recv_buf[i * 4 + 2];
+
+            if (u_bv_it != solver.velocity().boundary_values.end()) {
+                auto& bv = u_bv_it->second;
+                bv(pi, 0) = (1.0 - relax) * bv(pi, 0) + relax * recv_u;
+                bv(pi, 1) = (1.0 - relax) * bv(pi, 1) + relax * recv_v;
+                bv(pi, 2) = (1.0 - relax) * bv(pi, 2) + relax * recv_w;
+            }
+        }
+    }
+#else
+    (void)comm; (void)solver; (void)exchanges;
+#endif
 }
 
 // ===================================================================
@@ -313,6 +518,7 @@ int main(int argc, char* argv[]) {
     // Phase 2: Serial solve (baseline, only on root)
     // ============================================================
     double serial_solve_time = 0.0;
+    double serial_final_res = 1.0;
     SolveResult serial_result;
     serial_result.converged = false;
     serial_result.iterations = 0;
@@ -354,14 +560,13 @@ int main(int argc, char* argv[]) {
 
         auto t_serial_end = std::chrono::high_resolution_clock::now();
         serial_solve_time = std::chrono::duration<double>(t_serial_end - t_serial_start).count();
+        serial_final_res = serial_result.residuals.empty() ? 1.0 : serial_result.residuals.back();
 
         std::cout << " done\n";
         std::cout << "  Converged:      " << (serial_result.converged ? "yes" : "no") << "\n";
         std::cout << "  Iterations:     " << serial_result.iterations << "\n";
-        std::cout << "  Final residual: " << std::scientific << std::setprecision(3);
-        if (!serial_result.residuals.empty()) std::cout << serial_result.residuals.back();
-        else std::cout << "N/A";
-        std::cout << "\n";
+        std::cout << "  Final residual: " << std::scientific << std::setprecision(3)
+                  << serial_final_res << "\n";
 
         double u_max = serial_solver.velocity().magnitude().maxCoeff();
         double p_range = serial_solver.pressure().max() - serial_solver.pressure().min();
@@ -372,9 +577,10 @@ int main(int argc, char* argv[]) {
                   << serial_solve_time / std::max(1, serial_result.iterations) << " s\n\n";
     }
 
-    // Broadcast serial_solve_time to all ranks for speedup calculation
+    // Broadcast serial_solve_time and final residual to all ranks
 #ifdef USE_MPI
     MPI_Bcast(&serial_solve_time, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&serial_final_res, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 #endif
 
     // ============================================================
@@ -418,204 +624,18 @@ int main(int argc, char* argv[]) {
         }
 
         // ----------------------------------------------------------
-        // 3b. Extract local submesh for this rank
+        // 3b. Build clean local mesh with ghost face mapping
         // ----------------------------------------------------------
         auto t_extract_start = std::chrono::high_resolution_clock::now();
 
-        LocalMesh local_data = extract_local_mesh(mesh, part_ids, comm.rank());
-        FVMesh& local_mesh = local_data.mesh;
-
-        // Fix boundary patch face indices after reordering in extract_local_mesh.
-        // The extract function reorders faces (internal first, boundary second)
-        // but the boundary_patches still reference pre-reorder local indices.
-        // Rebuild boundary_patches by scanning the ordered faces.
-        {
-            std::unordered_map<std::string, std::vector<int>> fixed_patches;
-            for (int fi = local_mesh.n_internal_faces; fi < local_mesh.n_faces; ++fi) {
-                const Face& f = local_mesh.faces[fi];
-                if (!f.boundary_tag.empty()) {
-                    fixed_patches[f.boundary_tag].push_back(fi);
-                } else {
-                    // Boundary face without a tag: check original patches
-                    // Fall back: look up in existing boundary_face_cache
-                    auto it = local_mesh.boundary_face_cache.find(fi);
-                    if (it != local_mesh.boundary_face_cache.end()) {
-                        fixed_patches[it->second.first].push_back(fi);
-                    }
-                }
-            }
-            if (!fixed_patches.empty()) {
-                local_mesh.boundary_patches = std::move(fixed_patches);
-                local_mesh.build_boundary_face_cache();
-            }
-        }
-
-        // Build ghost layers with LOCAL cell indices
-        auto ghost_layers = build_local_ghost_layers(
-            mesh, part_ids, comm.rank(), local_data.global_to_local);
+        CleanMeshResult cm_result = build_clean_mesh(mesh, part_ids, comm.rank());
+        FVMesh& clean_mesh = cm_result.mesh;
 
         auto t_extract_end = std::chrono::high_resolution_clock::now();
         double extract_time = std::chrono::duration<double>(t_extract_end - t_extract_start).count();
 
-        int local_n_cells = local_mesh.n_cells;
-        int local_n_ghost = 0;
-        for (const auto& gl : ghost_layers) {
-            local_n_ghost += static_cast<int>(gl.recv_cells.size());
-        }
-
-        // Gather local cell counts for display
         if (comm.is_root()) {
             std::cout << "  Extract time:   " << std::setprecision(3) << extract_time << " s\n";
-        }
-
-        // (Per-rank info printed after clean_mesh construction below)
-
-        // ----------------------------------------------------------
-        // 3c. Create local solver on NON-GHOST cells only
-        // ----------------------------------------------------------
-        // Ghost cells cause crashes because they lack valid face connectivity.
-        // Instead: build a clean local mesh with only owned cells,
-        // treat partition boundary as zero-gradient (Neumann).
-        // Ghost exchange updates the partition-boundary face values directly.
-
-        // Rebuild local mesh without ghost cells
-        int n_owned = 0;
-        for (int ci = 0; ci < mesh.n_cells; ++ci) {
-            if (part_ids[ci] == comm.rank()) n_owned++;
-        }
-
-        // Use the local_mesh as-is but cap n_cells to owned only
-        // Actually the issue is simpler: just use owned cells count
-        // The local_mesh from extract already has the structure,
-        // but ghost cells at the end may be incomplete.
-        // Safest: solve on the full mesh per rank but only own cells.
-        // For now: use serial solver on local_mesh but reduce n_cells.
-
-        // WORKAROUND: Use the full mesh but solve only a portion
-        // by setting max_iter very low and catching crashes.
-        // REAL FIX: rebuild local mesh without ghosts.
-
-        // Simple approach that works: each rank solves full mesh (replicated)
-        // but only runs a FEW iterations, then exchanges.
-        // This still shows domain-decomposition OVERHEAD measurement.
-
-        // ACTUAL WORKING APPROACH: Don't use ghost cells in the mesh.
-        // Reconstruct a clean local mesh from owned cells only.
-        FVMesh clean_mesh(3);
-        {
-            // Collect owned global cell IDs
-            std::vector<int> owned_global;
-            for (int ci = 0; ci < mesh.n_cells; ++ci) {
-                if (part_ids[ci] == comm.rank()) owned_global.push_back(ci);
-            }
-
-            // Collect used nodes
-            std::set<int> used_nodes;
-            for (int ci : owned_global) {
-                for (int nid : mesh.cells[ci].nodes) used_nodes.insert(nid);
-            }
-
-            // Remap nodes
-            std::unordered_map<int, int> node_map;
-            int new_nid = 0;
-            clean_mesh.nodes.resize(used_nodes.size(), 3);
-            for (int old_nid : used_nodes) {
-                node_map[old_nid] = new_nid;
-                clean_mesh.nodes.row(new_nid) = mesh.nodes.row(old_nid);
-                new_nid++;
-            }
-
-            // Create cells
-            clean_mesh.n_cells = static_cast<int>(owned_global.size());
-            clean_mesh.cells.resize(clean_mesh.n_cells);
-            std::unordered_map<int, int> gcell_to_local;
-            for (int li = 0; li < clean_mesh.n_cells; ++li) {
-                int gi = owned_global[li];
-                gcell_to_local[gi] = li;
-                auto& cell = clean_mesh.cells[li];
-                cell.center = mesh.cells[gi].center;
-                cell.volume = mesh.cells[gi].volume;
-                for (int nid : mesh.cells[gi].nodes) {
-                    cell.nodes.push_back(node_map[nid]);
-                }
-            }
-
-            // Create faces: only faces where owner is owned
-            int fid = 0;
-            for (int fi = 0; fi < mesh.n_faces; ++fi) {
-                const Face& gf = mesh.faces[fi];
-                auto it_o = gcell_to_local.find(gf.owner);
-                if (it_o == gcell_to_local.end()) continue;
-
-                Face lf;
-                lf.owner = it_o->second;
-                lf.area = gf.area;
-                lf.normal = gf.normal;
-                lf.center = gf.center;
-                lf.boundary_tag = gf.boundary_tag;
-                for (int nid : gf.nodes) {
-                    auto nit = node_map.find(nid);
-                    if (nit != node_map.end()) lf.nodes.push_back(nit->second);
-                }
-
-                auto it_n = gcell_to_local.find(gf.neighbour);
-                if (gf.neighbour >= 0 && it_n != gcell_to_local.end()) {
-                    // Internal face (both cells owned)
-                    lf.neighbour = it_n->second;
-                } else {
-                    // Boundary face (neighbour not owned or original boundary)
-                    lf.neighbour = -1;
-                    if (lf.boundary_tag.empty()) {
-                        lf.boundary_tag = "mpi_interface";
-                    }
-                }
-
-                clean_mesh.cells[lf.owner].faces.push_back(fid);
-                if (lf.neighbour >= 0) clean_mesh.cells[lf.neighbour].faces.push_back(fid);
-                clean_mesh.faces.push_back(lf);
-                fid++;
-            }
-
-            // Also add faces where neighbour is owned but owner is not
-            for (int fi = 0; fi < mesh.n_faces; ++fi) {
-                const Face& gf = mesh.faces[fi];
-                if (gf.neighbour < 0) continue;
-                auto it_o = gcell_to_local.find(gf.owner);
-                auto it_n = gcell_to_local.find(gf.neighbour);
-                if (it_o == gcell_to_local.end() && it_n != gcell_to_local.end()) {
-                    Face lf;
-                    lf.owner = it_n->second;
-                    lf.neighbour = -1;
-                    lf.area = gf.area;
-                    lf.normal = Vec3(-gf.normal[0], -gf.normal[1], -gf.normal[2]);
-                    lf.center = gf.center;
-                    lf.boundary_tag = "mpi_interface";
-                    for (int nid : gf.nodes) {
-                        auto nit = node_map.find(nid);
-                        if (nit != node_map.end()) lf.nodes.push_back(nit->second);
-                    }
-                    clean_mesh.cells[lf.owner].faces.push_back(fid);
-                    clean_mesh.faces.push_back(lf);
-                    fid++;
-                }
-            }
-
-            clean_mesh.n_faces = fid;
-            clean_mesh.n_internal_faces = 0;
-            clean_mesh.n_boundary_faces = 0;
-            for (auto& f : clean_mesh.faces) {
-                if (f.neighbour >= 0) clean_mesh.n_internal_faces++;
-                else clean_mesh.n_boundary_faces++;
-            }
-
-            // Build boundary patches from face tags
-            for (int fi = 0; fi < clean_mesh.n_faces; ++fi) {
-                auto& f = clean_mesh.faces[fi];
-                if (f.neighbour < 0 && !f.boundary_tag.empty()) {
-                    clean_mesh.boundary_patches[f.boundary_tag].push_back(fi);
-                }
-            }
-            clean_mesh.build_boundary_face_cache();
         }
 
         // Print per-rank info
@@ -627,11 +647,30 @@ int main(int argc, char* argv[]) {
                 for (auto& [name, fids] : clean_mesh.boundary_patches) {
                     std::cout << " " << name << "(" << fids.size() << ")";
                 }
-                std::cout << "\n" << std::flush;
+                std::cout << ", ghost_faces=" << cm_result.ghost_faces.size()
+                          << "\n" << std::flush;
             }
             comm.barrier();
         }
 
+        // ----------------------------------------------------------
+        // 3c. Build exchange maps (MPI communication of index lists)
+        // ----------------------------------------------------------
+        auto exchanges = build_exchange_maps(
+            comm, cm_result.ghost_faces, cm_result.gcell_to_local);
+
+        if (comm.is_root()) {
+            int total_exchange_faces = 0;
+            for (const auto& ex : exchanges) {
+                total_exchange_faces += static_cast<int>(ex.recv_patch_indices.size());
+            }
+            std::cout << "  Exchange setup: " << exchanges.size() << " neighbors, "
+                      << total_exchange_faces << " interface faces\n";
+        }
+
+        // ----------------------------------------------------------
+        // 3d. Create local solver and set BCs
+        // ----------------------------------------------------------
         SIMPLESolver local_solver(clean_mesh, rho, mu);
         local_solver.alpha_u = 0.7;
         local_solver.alpha_p = 0.3;
@@ -640,10 +679,8 @@ int main(int argc, char* argv[]) {
         set_local_bcs(local_solver, clean_mesh, Ly, Lz, U_mean);
 
         // ----------------------------------------------------------
-        // 3d. Outer Schwarz iteration loop
+        // 3e. Outer Schwarz iteration loop with REAL ghost exchange
         // ----------------------------------------------------------
-        // Each outer iteration: run K inner SIMPLE iterations locally,
-        // then exchange ghost cell values between ranks.
         const int inner_iters = 5;   // SIMPLE iterations per exchange
         const int outer_iters = (max_iter + inner_iters - 1) / inner_iters;
         const double tol = 1e-8;
@@ -661,15 +698,15 @@ int main(int argc, char* argv[]) {
         double final_residual = 1.0;
 
         for (int outer = 0; outer < outer_iters; ++outer) {
+            // Exchange ghost values BEFORE inner solve so that the
+            // mpi_interface Dirichlet BCs have current neighbor data.
+            exchange_interface_values(comm, local_solver, exchanges);
+
             // Inner SIMPLE iterations on local mesh
             local_solver.max_iter = inner_iters;
             local_solver.tol = tol * 0.1;  // tight inner tol
             SolveResult inner_result = local_solver.solve_steady();
             total_iters += inner_result.iterations;
-
-            // Synchronize between ranks (barrier acts as implicit exchange
-            // since each rank's mpi_interface BCs use zero-gradient)
-            comm.barrier();
 
             // Global convergence check
             double local_res = inner_result.residuals.empty()
@@ -697,12 +734,12 @@ int main(int argc, char* argv[]) {
         comm.barrier();
 
         // ----------------------------------------------------------
-        // 3e. Report results
+        // 3f. Report results
         // ----------------------------------------------------------
-        if (comm.is_root()) {
-            double u_max_local = local_solver.velocity().magnitude().maxCoeff();
-            double u_max_global = comm.all_reduce_max(u_max_local);
+        double u_max_local = local_solver.velocity().magnitude().maxCoeff();
+        double u_max_global = comm.all_reduce_max(u_max_local);
 
+        if (comm.is_root()) {
             std::cout << "\n================================================================\n";
             std::cout << "  RESULTS\n";
             std::cout << "================================================================\n";
@@ -711,12 +748,15 @@ int main(int argc, char* argv[]) {
             std::cout << "  Final residual:   " << std::scientific << std::setprecision(3)
                       << final_residual << "\n";
             std::cout << "  |U| max (global): " << std::fixed << std::setprecision(4)
-                      << u_max_global << "\n\n";
+                      << u_max_global << "\n";
+            std::cout << "  Serial final res: " << std::scientific << std::setprecision(3)
+                      << serial_final_res << "\n\n";
 
             std::cout << "================================================================\n";
             std::cout << "  PERFORMANCE\n";
             std::cout << "================================================================\n";
-            std::cout << "  Mesh generation:  " << std::setprecision(3) << mesh_time << " s\n";
+            std::cout << "  Mesh generation:  " << std::fixed << std::setprecision(3)
+                      << mesh_time << " s\n";
             std::cout << "  Partitioning:     " << part_time << " s\n";
             std::cout << "  Mesh extraction:  " << extract_time << " s\n";
             std::cout << "  Serial time:      " << serial_solve_time << " s"
@@ -745,18 +785,13 @@ int main(int argc, char* argv[]) {
 
             std::cout << "================================================================\n";
 
-            // Expected scaling model: BiCGSTAB is ~O(n^1.3), so
-            // Speedup ~ N^0.3 for N ranks (minus communication overhead)
+            // Scaling model
             double n_ranks = static_cast<double>(comm.size());
             double expected = std::pow(n_ranks, 0.3);
             std::cout << "\n  Theoretical speedup (O(n^1.3) solver): "
                       << std::fixed << std::setprecision(2) << expected << "x\n";
             std::cout << "  Actual speedup:                         "
                       << speedup << "x\n";
-        } else {
-            // Non-root ranks also need to participate in all_reduce_max for u_max
-            double u_max_local = local_solver.velocity().magnitude().maxCoeff();
-            comm.all_reduce_max(u_max_local);
         }
     } else {
         // ============================================================
