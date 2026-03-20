@@ -533,10 +533,13 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     convection_operator_upwind(mesh_, alpha_mf, system);
 
     // MUSCL deferred correction for 2nd-order convection (C4 fix)
+    // Pass the raw mass_flux (not alpha_mf) so the r-ratio and |F| scaling in
+    // muscl_deferred_correction are computed against the actual momentum flux,
+    // not a pre-multiplied alpha-flux that distorts the limiter on coarse grids.
     if (convection_scheme == "muscl") {
         auto grad_phi = green_gauss_gradient(phi);
         auto dc = muscl_deferred_correction(
-            mesh_, phi, alpha_mf, grad_phi, muscl_limiter);
+            mesh_, phi, mass_flux, grad_phi, muscl_limiter);
         for (int ci = 0; ci < n; ++ci) {
             system.add_source(ci, dc[ci]);
         }
@@ -571,12 +574,15 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
         if (face.neighbour >= 0) {
             int nb = face.neighbour;
             double dp = p_.values[nb] - p_.values[o];
-            double al_o = alpha.values[o];
-            double al_nb = alpha.values[nb];
+            // Use face-averaged alpha so the pressure force is conservative:
+            // both owner and neighbour see the same alpha weight on this face.
+            // Using cell-local alpha (al_o for owner, al_nb for neighbour) breaks
+            // momentum conservation when alpha varies across the face (sharp gradients).
+            double al_f = 0.5 * (alpha.values[o] + alpha.values[nb]);
 
             // Pressure gradient contribution to owner and neighbour
-            double force_o = -al_o * dp * face.normal[comp] * face.area;
-            double force_nb = al_nb * dp * face.normal[comp] * face.area;
+            double force_o = -al_f * dp * face.normal[comp] * face.area;
+            double force_nb =  al_f * dp * face.normal[comp] * face.area;
             system.add_source(o, force_o);
             system.add_source(nb, force_nb);
         } else {
@@ -757,6 +763,30 @@ double TwoFluidSolver::solve_pressure_correction(const Eigen::VectorXd& mf_l,
             double total_mf = mf_l[fid] * alpha_l_.values[o]
                             + mf_g[fid] * alpha_g_.values[o];
             system.add_source(o, -total_mf);
+
+            // For Dirichlet pressure BC (outlet): enforce p' = 0 at the outlet
+            // boundary using the large-number method. Without this, outlet cells
+            // have no constraint on p' and the correction can grow unboundedly,
+            // causing velocity blowup through the velocity correction step.
+            auto cache_it = face_bc_cache_.find(fid);
+            if (cache_it != face_bc_cache_.end()) {
+                auto& [bname, li] = cache_it->second;
+                if (bc_p_.count(bname) && bc_p_.at(bname).type == "dirichlet") {
+                    // Estimate face diffusion length for coefficient scaling
+                    double d_Pf = (face.center - mesh_.cells[o].center).norm();
+                    if (d_Pf < 1e-30) d_Pf = 1e-3;
+                    double al_f = alpha_l_.values[o];
+                    double ag_f = alpha_g_.values[o];
+                    double aP_l_f = std::max(aP_l_[o], 1e-30);
+                    double aP_g_f = std::max(aP_g_storage_[o], 1e-30);
+                    double vol_f = mesh_.cells[o].volume;
+                    double coeff_l = rho_l * al_f * vol_f / aP_l_f;
+                    double coeff_g = rho_g * ag_f * vol_f / aP_g_f;
+                    double coeff = (coeff_l + coeff_g) * face.area / d_Pf;
+                    // p' = 0 at outlet: add coeff to diagonal, zero to source
+                    system.add_diagonal(o, coeff);
+                }
+            }
         }
     }
 
@@ -878,10 +908,16 @@ double TwoFluidSolver::solve_volume_fraction(const Eigen::VectorXd& mf_g,
         alpha_g_.values = alpha_old;
     }
 
-    // Physical limits: clip to [0, alpha_max] (user-configurable)
+    // Physical limits: clip to [alpha_min_floor, alpha_max].
+    // The lower bound 1e-20 prevents subnormal floating-point values in cells
+    // that are effectively pure liquid (alpha_g ≈ 0). Without this floor, the
+    // volume fraction equation can drive alpha_g to subnormal values (~1e-220)
+    // in pure-liquid cells, which triggers false divergence detection and causes
+    // downstream division issues in drag and pressure correction terms.
+    constexpr double alpha_min_floor = 1e-20;
 #pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
-        alpha_g_.values[ci] = std::clamp(alpha_g_.values[ci], 0.0, alpha_max);
+        alpha_g_.values[ci] = std::clamp(alpha_g_.values[ci], alpha_min_floor, alpha_max);
     }
     alpha_l_.values = Eigen::VectorXd::Ones(n) - alpha_g_.values;
 

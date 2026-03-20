@@ -185,7 +185,17 @@ void apply_boundary_conditions(
 
                 double F = mass_flux(fid);
                 if (F < 0) {
+                    // Standard inflow (F < 0 means flow enters domain through this face).
+                    // convection_operator_upwind added nothing to diagonal for this face,
+                    // so we add the inflow convection contribution here.
                     system.add_source(owner, -F * phi_b);
+                } else {
+                    // F >= 0: convection_operator_upwind already added F to diagonal
+                    // treating this as outflow. For a Dirichlet BC we must override this
+                    // and enforce phi_b regardless. Cancel the diagonal outflow term and
+                    // add the Dirichlet-enforced convective flux to the source.
+                    system.add_diagonal(owner, -F);
+                    system.add_source(owner, F * phi_b);
                 }
             } else if (bc.type == "neumann") {
                 double flux = bc.value * face.area;
