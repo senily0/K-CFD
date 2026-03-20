@@ -5,7 +5,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <limits>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 
@@ -80,6 +84,7 @@ Eigen::VectorXd KOmegaSSTModel::compute_CDkw() const {
     Eigen::MatrixXd grad_w = green_gauss_gradient(omega_);
 
     Eigen::VectorXd CDkw(n);
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double dot = grad_k.row(ci).dot(grad_w.row(ci));
         double omega_v = std::max(omega_.values(ci), 1e-10);
@@ -100,6 +105,7 @@ Eigen::VectorXd KOmegaSSTModel::compute_F1() const {
     Eigen::VectorXd CDkw = compute_CDkw();
     Eigen::VectorXd F1(n);
 
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double kv = std::max(k_.values(ci), 1e-10);
         double wv = std::max(omega_.values(ci), 1e-10);
@@ -127,6 +133,7 @@ Eigen::VectorXd KOmegaSSTModel::compute_F2() const {
     int n = mesh_.n_cells;
     Eigen::VectorXd F2(n);
 
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double kv = std::max(k_.values(ci), 1e-10);
         double wv = std::max(omega_.values(ci), 1e-10);
@@ -157,6 +164,7 @@ Eigen::VectorXd KOmegaSSTModel::get_mu_t() const {
     Eigen::VectorXd F2 = compute_F2();
     Eigen::VectorXd mu_t(n);
 
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double kv = std::max(k_.values(ci), 1e-10);
         double wv = std::max(omega_.values(ci), 1e-10);
@@ -191,17 +199,21 @@ Eigen::VectorXd KOmegaSSTModel::compute_production(
 
     // S^2 = 2 * S_ij * S_ij
     Eigen::VectorXd S_sq = Eigen::VectorXd::Zero(n);
-    for (int i = 0; i < ndim; ++i) {
-        for (int j = 0; j < ndim; ++j) {
-            for (int ci = 0; ci < n; ++ci) {
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
+        double s = 0.0;
+        for (int i = 0; i < ndim; ++i) {
+            for (int j = 0; j < ndim; ++j) {
                 double Sij = 0.5 * (grads[i](ci, j) + grads[j](ci, i));
-                S_sq(ci) += 2.0 * Sij * Sij;
+                s += 2.0 * Sij * Sij;
             }
         }
+        S_sq(ci) = s;
     }
 
     // P_k = mu_t * S^2, then apply production limiter
     Eigen::VectorXd P_k(n);
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double kv = std::max(k_.values(ci), 1e-10);
         double wv = std::max(omega_.values(ci), 1e-10);
@@ -228,6 +240,7 @@ void KOmegaSSTModel::solve(const VectorField& U, const Eigen::VectorXd& mass_flu
     // Blended SST coefficients per cell
     // phi_blend = F1 * phi1 + (1 - F1) * phi2
     Eigen::VectorXd sigma_k_b(n), sigma_w_b(n), beta_b(n), gamma_b(n);
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double f = F1(ci);
         sigma_k_b(ci) = f * sigma_k1 + (1.0 - f) * sigma_k2;
@@ -239,6 +252,7 @@ void KOmegaSSTModel::solve(const VectorField& U, const Eigen::VectorXd& mass_flu
     // Compute mu_t using SST definition with strain rate
     // First pass: use simple estimate to compute production
     Eigen::VectorXd mu_t_simple(n);
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double kv = std::max(k_.values(ci), 1e-10);
         double wv = std::max(omega_.values(ci), 1e-10);
@@ -259,17 +273,21 @@ void KOmegaSSTModel::solve(const VectorField& U, const Eigen::VectorXd& mass_flu
     }
 
     Eigen::VectorXd S_sq = Eigen::VectorXd::Zero(n);
-    for (int i = 0; i < ndim; ++i) {
-        for (int j = 0; j < ndim; ++j) {
-            for (int ci = 0; ci < n; ++ci) {
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
+        double s = 0.0;
+        for (int i = 0; i < ndim; ++i) {
+            for (int j = 0; j < ndim; ++j) {
                 double Sij = 0.5 * (grads[i](ci, j) + grads[j](ci, i));
-                S_sq(ci) += 2.0 * Sij * Sij;
+                s += 2.0 * Sij * Sij;
             }
         }
+        S_sq(ci) = s;
     }
 
     // SST mu_t = rho * a1 * k / max(a1*omega, S*F2)
     Eigen::VectorXd mu_t(n);
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double kv   = std::max(k_.values(ci), 1e-10);
         double wv   = std::max(omega_.values(ci), 1e-10);
@@ -284,6 +302,7 @@ void KOmegaSSTModel::solve(const VectorField& U, const Eigen::VectorXd& mass_flu
     // Cross-diffusion term for omega equation: (1 - F1) * 2*rho*sigma_w2/omega * grad_k.grad_omega
     Eigen::VectorXd CDkw_raw = compute_CDkw();
     Eigen::VectorXd CD_omega(n);
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         CD_omega(ci) = (1.0 - F1(ci)) * CDkw_raw(ci);
     }
@@ -375,11 +394,35 @@ void KOmegaSSTModel::solve(const VectorField& U, const Eigen::VectorXd& mass_flu
 }
 
 // ---------------------------------------------------------------------------
-// Wall functions for omega
+// Wall treatment for omega (automatic, Low-Re, or wall functions)
 // ---------------------------------------------------------------------------
 
 void KOmegaSSTModel::apply_wall_functions(
     const VectorField& U, const std::vector<std::string>& wall_patches) {
+
+    // One-time y+ range warning for AUTOMATIC mode
+    if (wall_treatment == WallTreatment::AUTOMATIC && !wall_y_plus_warned_) {
+        Eigen::VectorXd yp = get_y_plus(U, wall_patches);
+        double yp_max = yp.maxCoeff();
+        double yp_min_wall = std::numeric_limits<double>::max();
+        for (const auto& pn : wall_patches) {
+            auto it2 = mesh_.boundary_patches.find(pn);
+            if (it2 == mesh_.boundary_patches.end()) continue;
+            for (int fid : it2->second) {
+                int ci = mesh_.faces[fid].owner;
+                if (yp(ci) > 0.0 && yp(ci) < yp_min_wall) yp_min_wall = yp(ci);
+            }
+        }
+        if (yp_max > 300.0)
+            std::cerr << "[KOmegaSST] WARNING: max(y+) = " << yp_max
+                      << " > 300 -- mesh too coarse for wall functions\n";
+        if (yp_min_wall < std::numeric_limits<double>::max() && yp_min_wall < 1.0)
+            std::cerr << "[KOmegaSST] WARNING: min(y+) = " << yp_min_wall
+                      << " < 1 -- consider switching to Low-Re mode\n";
+        wall_y_plus_warned_ = true;
+    }
+
+    double C_mu_025 = std::pow(beta_star, 0.25);
 
     for (const auto& patch_name : wall_patches) {
         auto it = mesh_.boundary_patches.find(patch_name);
@@ -393,17 +436,43 @@ void KOmegaSSTModel::apply_wall_functions(
 
             double kv = std::max(k_.values(ci), 1e-10);
 
-            // Viscous sublayer: omega_vis = 6*mu/(rho*beta_1*y^2)
+            // Viscous sublayer (Low-Re): omega_vis = 6*mu/(rho*beta_1*y^2)
             double omega_vis = 6.0 * mu_ / (rho_ * beta_1 * y_dist * y_dist);
 
-            // Log-layer: omega_log = sqrt(k) / (C_mu^0.25 * kappa * y)
-            // C_mu^0.25 = beta_star^0.25
-            double C_mu_025 = std::pow(beta_star, 0.25);
+            // Log-layer (wall functions): omega_log = sqrt(k)/(C_mu^0.25*kappa*y)
             double omega_log = std::sqrt(kv) / (C_mu_025 * kappa_vk * y_dist);
 
-            // Blended wall BC (Menter 1994)
-            omega_.values(ci) = std::sqrt(omega_vis * omega_vis + omega_log * omega_log);
-            omega_.values(ci) = std::max(omega_.values(ci), 1e-10);
+            // k Low-Re: k=0 at wall; k wall-function: k=u_tau^2/sqrt(beta_star)
+            double u_tau     = std::max(C_mu_025 * std::sqrt(kv), 1e-10);
+            double k_wallFunc = std::max(u_tau * u_tau / std::sqrt(beta_star), 1e-10);
+
+            // y+ for mode selection
+            double y_plus = rho_ * u_tau * y_dist / mu_;
+
+            WallTreatment effective = wall_treatment;
+            if (effective == WallTreatment::AUTOMATIC) {
+                if (y_plus < 5.0)       effective = WallTreatment::LOW_RE;
+                else if (y_plus > 30.0) effective = WallTreatment::WALL_FUNCTIONS;
+                // else stays AUTOMATIC → blend
+            }
+
+            if (effective == WallTreatment::LOW_RE) {
+                k_.values(ci)     = 0.0;
+                omega_.values(ci) = std::max(omega_vis, 1e-10);
+            } else if (effective == WallTreatment::WALL_FUNCTIONS) {
+                k_.values(ci)     = k_wallFunc;
+                // Menter blended omega for log layer
+                omega_.values(ci) = std::max(
+                    std::sqrt(omega_vis * omega_vis + omega_log * omega_log), 1e-10);
+            } else {
+                // Buffer layer blend: y+ in [5, 30]
+                double blend = (y_plus - 5.0) / 25.0;
+                blend = std::max(0.0, std::min(1.0, blend));
+                k_.values(ci)     = std::max(blend * k_wallFunc, 1e-10);
+                double omega_blended = (1.0 - blend) * omega_vis + blend *
+                    std::sqrt(omega_vis * omega_vis + omega_log * omega_log);
+                omega_.values(ci) = std::max(omega_blended, 1e-10);
+            }
         }
     }
 }

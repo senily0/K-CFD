@@ -1,6 +1,9 @@
 #include "twofluid/mesh_generator_3d.hpp"
 #include <cmath>
 #include <map>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 
@@ -32,6 +35,7 @@ FVMesh generate_3d_channel_mesh(
 
     // Nodes
     mesh.nodes.resize(n_nodes, 3);
+#pragma omp parallel for schedule(static) collapse(3)
     for (int k = 0; k <= nz; ++k)
         for (int j = 0; j <= ny; ++j)
             for (int i = 0; i <= nx; ++i) {
@@ -44,6 +48,7 @@ FVMesh generate_3d_channel_mesh(
     // Cells
     mesh.n_cells = n_cells;
     mesh.cells.resize(n_cells);
+#pragma omp parallel for schedule(static) collapse(3)
     for (int k = 0; k < nz; ++k)
         for (int j = 0; j < ny; ++j)
             for (int i = 0; i < nx; ++i) {

@@ -1,5 +1,8 @@
 #include "twofluid/gradient.hpp"
 #include <cmath>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 namespace detail {
@@ -58,7 +61,9 @@ Eigen::MatrixXd green_gauss_gradient(const ScalarField& phi) {
         }
     }
 
-    for (int ci = 0; ci < mesh.n_cells; ++ci) {
+    int n = mesh.n_cells;
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
         double vol = mesh.cells[ci].volume;
         if (vol > 1e-30) {
             grad.row(ci) /= vol;
@@ -71,9 +76,11 @@ Eigen::MatrixXd green_gauss_gradient(const ScalarField& phi) {
 Eigen::MatrixXd least_squares_gradient(const ScalarField& phi) {
     const FVMesh& mesh = phi.mesh();
     int ndim = mesh.ndim;
-    Eigen::MatrixXd grad = Eigen::MatrixXd::Zero(mesh.n_cells, ndim);
+    int n_cells = mesh.n_cells;
+    Eigen::MatrixXd grad = Eigen::MatrixXd::Zero(n_cells, ndim);
 
-    for (int ci = 0; ci < mesh.n_cells; ++ci) {
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n_cells; ++ci) {
         const Cell& cell = mesh.cells[ci];
         Eigen::VectorXd xP = cell.center.head(ndim);
 

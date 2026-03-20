@@ -3,6 +3,9 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 
@@ -70,6 +73,7 @@ Eigen::VectorXd LeePhaseChangeModel::compute_mass_transfer(
     int n = mesh_.n_cells;
     Eigen::VectorXd dot_m = Eigen::VectorXd::Zero(n);
 
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double T_val = T.values(i);
         double al = alpha_l.values(i);

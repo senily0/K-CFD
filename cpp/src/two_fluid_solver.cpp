@@ -9,6 +9,9 @@
 #include <iostream>
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 
@@ -364,6 +367,7 @@ Eigen::VectorXd TwoFluidSolver::compute_phase_change_rate() {
     Eigen::VectorXd dot_m = Eigen::VectorXd::Zero(n);
     double r = r_phase_change;
 
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double tl = T_l_.values[ci];
         double tg = T_g_.values[ci];
@@ -625,6 +629,7 @@ double TwoFluidSolver::solve_pressure_correction(const Eigen::VectorXd& mf_l,
     }
 
     // Correct velocities
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double vol = mesh_.cells[ci].volume;
         for (int d = 0; d < ndim; ++d) {
@@ -639,6 +644,7 @@ double TwoFluidSolver::solve_pressure_correction(const Eigen::VectorXd& mf_l,
 
     // Velocity NaN/Inf cleanup with user-configurable limits
     for (auto* U_field : {&U_l_, &U_g_}) {
+#pragma omp parallel for schedule(static)
         for (int ci = 0; ci < n; ++ci) {
             for (int d = 0; d < ndim; ++d) {
                 double& v = U_field->values(ci, d);
@@ -699,6 +705,7 @@ double TwoFluidSolver::solve_volume_fraction(const Eigen::VectorXd& mf_g,
     }
 
     // Physical limits: clip to [0, alpha_max] (user-configurable)
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         alpha_g_.values[ci] = std::clamp(alpha_g_.values[ci], 0.0, alpha_max);
     }

@@ -5,6 +5,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 
@@ -36,6 +40,7 @@ void KEpsilonModel::initialize(double k_init, double eps_init) {
 Eigen::VectorXd KEpsilonModel::get_mu_t() const {
     int n = mesh_.n_cells;
     Eigen::VectorXd mu_t(n);
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double kv = std::max(k_.values(ci), 1e-10);
         double ev = std::max(epsilon_.values(ci), 1e-10);
@@ -68,17 +73,21 @@ Eigen::VectorXd KEpsilonModel::compute_production(
 
     // S^2 = 2 * S_ij * S_ij, where S_ij = 0.5 * (dU_i/dx_j + dU_j/dx_i)
     Eigen::VectorXd S_sq = Eigen::VectorXd::Zero(n);
-    for (int i = 0; i < ndim; ++i) {
-        for (int j = 0; j < ndim; ++j) {
-            for (int ci = 0; ci < n; ++ci) {
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
+        double s = 0.0;
+        for (int i = 0; i < ndim; ++i) {
+            for (int j = 0; j < ndim; ++j) {
                 double Sij = 0.5 * (grads[i](ci, j) + grads[j](ci, i));
-                S_sq(ci) += 2.0 * Sij * Sij;
+                s += 2.0 * Sij * Sij;
             }
         }
+        S_sq(ci) = s;
     }
 
     // P_k = mu_t * S^2
     Eigen::VectorXd P_k(n);
+#pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         P_k(ci) = mu_t(ci) * S_sq(ci);
     }
@@ -195,11 +204,33 @@ void KEpsilonModel::solve(const VectorField& U, const Eigen::VectorXd& mass_flux
 }
 
 // ---------------------------------------------------------------------------
-// Wall functions
+// Wall treatment (automatic, Low-Re, or wall functions)
 // ---------------------------------------------------------------------------
 
 void KEpsilonModel::apply_wall_functions(
     const VectorField& U, const std::vector<std::string>& wall_patches) {
+
+    // One-time y+ range warning for AUTOMATIC mode
+    if (wall_treatment == WallTreatment::AUTOMATIC && !wall_y_plus_warned_) {
+        Eigen::VectorXd yp = get_y_plus(U, wall_patches);
+        double yp_max = yp.maxCoeff();
+        double yp_min_wall = std::numeric_limits<double>::max();
+        for (const auto& pn : wall_patches) {
+            auto it2 = mesh_.boundary_patches.find(pn);
+            if (it2 == mesh_.boundary_patches.end()) continue;
+            for (int fid : it2->second) {
+                int ci = mesh_.faces[fid].owner;
+                if (yp(ci) > 0.0 && yp(ci) < yp_min_wall) yp_min_wall = yp(ci);
+            }
+        }
+        if (yp_max > 300.0)
+            std::cerr << "[KEpsilon] WARNING: max(y+) = " << yp_max
+                      << " > 300 -- mesh too coarse for wall functions\n";
+        if (yp_min_wall < std::numeric_limits<double>::max() && yp_min_wall < 1.0)
+            std::cerr << "[KEpsilon] WARNING: min(y+) = " << yp_min_wall
+                      << " < 1 -- consider switching to Low-Re mode\n";
+        wall_y_plus_warned_ = true;
+    }
 
     for (const auto& patch_name : wall_patches) {
         auto it = mesh_.boundary_patches.find(patch_name);
@@ -208,35 +239,76 @@ void KEpsilonModel::apply_wall_functions(
         for (int fid : it->second) {
             const Face& face = mesh_.faces[fid];
             int ci = face.owner;
-            Eigen::Vector3d cell_center = mesh_.cells[ci].center;
-            double y_dist = (cell_center - face.center).norm();
-
+            double y_dist = (mesh_.cells[ci].center - face.center).norm();
             if (y_dist < 1e-15) continue;
 
-            // Cell velocity magnitude
-            int ndim = mesh_.ndim;
-            double U_mag = 0.0;
-            for (int d = 0; d < ndim; ++d) {
-                U_mag += U.values(ci, d) * U.values(ci, d);
-            }
-            U_mag = std::sqrt(U_mag);
-            if (U_mag < 1e-15) continue;
+            double kv = std::max(k_.values(ci), 1e-10);
 
             // Friction velocity estimate: u_tau = C_mu^0.25 * sqrt(k)
-            double u_tau = std::max(
-                std::pow(C_mu, 0.25) * std::sqrt(std::max(k_.values(ci), 1e-10)),
-                1e-10);
+            double u_tau = std::max(std::pow(C_mu, 0.25) * std::sqrt(kv), 1e-10);
             double y_plus = rho_ * u_tau * y_dist / mu_;
 
-            if (y_plus > 11.225) {
-                // Log-law region: apply wall functions
-                k_.values(ci) = std::max(u_tau * u_tau / std::sqrt(C_mu), 1e-10);
-                epsilon_.values(ci) = std::max(
-                    u_tau * u_tau * u_tau / (kappa * y_dist), 1e-10);
+            // --- Low-Re values (viscous sublayer) ---
+            double k_lowRe  = 0.0;
+            double eps_lowRe = std::max(2.0 * mu_ * kv / (rho_ * y_dist * y_dist), 1e-10);
+
+            // --- Wall-function values (log layer) ---
+            double k_wallFunc  = std::max(u_tau * u_tau / std::sqrt(C_mu), 1e-10);
+            double eps_wallFunc = std::max(u_tau * u_tau * u_tau / (kappa * y_dist), 1e-10);
+
+            WallTreatment effective = wall_treatment;
+            if (effective == WallTreatment::AUTOMATIC) {
+                if (y_plus < 5.0) {
+                    effective = WallTreatment::LOW_RE;
+                } else if (y_plus > 30.0) {
+                    effective = WallTreatment::WALL_FUNCTIONS;
+                }
+                // else stays AUTOMATIC → blend below
             }
-            // Linear sublayer: no modification needed
+
+            if (effective == WallTreatment::LOW_RE) {
+                k_.values(ci)       = k_lowRe;
+                epsilon_.values(ci) = eps_lowRe;
+            } else if (effective == WallTreatment::WALL_FUNCTIONS) {
+                k_.values(ci)       = k_wallFunc;
+                epsilon_.values(ci) = eps_wallFunc;
+            } else {
+                // Buffer layer blend: y+ in [5, 30]
+                double blend = (y_plus - 5.0) / 25.0;
+                blend = std::max(0.0, std::min(1.0, blend));
+                k_.values(ci)       = std::max((1.0 - blend) * k_lowRe  + blend * k_wallFunc,  1e-10);
+                epsilon_.values(ci) = std::max((1.0 - blend) * eps_lowRe + blend * eps_wallFunc, 1e-10);
+            }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// y+ computation
+// ---------------------------------------------------------------------------
+
+Eigen::VectorXd KEpsilonModel::get_y_plus(
+    const VectorField& U, const std::vector<std::string>& wall_patches) const {
+
+    int n = mesh_.n_cells;
+    Eigen::VectorXd y_plus = Eigen::VectorXd::Zero(n);
+
+    for (const auto& patch_name : wall_patches) {
+        auto it = mesh_.boundary_patches.find(patch_name);
+        if (it == mesh_.boundary_patches.end()) continue;
+
+        for (int fid : it->second) {
+            const Face& face = mesh_.faces[fid];
+            int ci = face.owner;
+            double y_dist = (mesh_.cells[ci].center - face.center).norm();
+            if (y_dist < 1e-15) continue;
+
+            double kv    = std::max(k_.values(ci), 1e-10);
+            double u_tau = std::max(std::pow(C_mu, 0.25) * std::sqrt(kv), 1e-10);
+            y_plus(ci)   = rho_ * u_tau * y_dist / mu_;
+        }
+    }
+    return y_plus;
 }
 
 } // namespace twofluid

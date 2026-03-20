@@ -3,6 +3,9 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 
@@ -65,6 +68,7 @@ Eigen::VectorXd compute_mass_flux(const VectorField& U, double rho,
     int ndim = mesh.ndim;
     Eigen::VectorXd mass_flux = Eigen::VectorXd::Zero(n_faces);
 
+#pragma omp parallel for schedule(static)
     for (int fid = 0; fid < n_faces; ++fid) {
         const Face& face = mesh.faces[fid];
         Eigen::VectorXd u_f;

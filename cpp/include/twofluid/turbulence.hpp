@@ -36,9 +36,17 @@ public:
                const std::unordered_map<std::string, std::string>& bc_types,
                double alpha_k = 0.7, double alpha_eps = 0.7);
 
+    /// Wall treatment mode
+    enum class WallTreatment { WALL_FUNCTIONS, LOW_RE, AUTOMATIC };
+    WallTreatment wall_treatment = WallTreatment::AUTOMATIC;
+
     /// Apply wall functions (modifies k, epsilon near walls).
     void apply_wall_functions(const VectorField& U,
                               const std::vector<std::string>& wall_patches);
+
+    /// Get y+ values for monitoring (wall-adjacent cells; others = 0).
+    Eigen::VectorXd get_y_plus(const VectorField& U,
+                                const std::vector<std::string>& wall_patches) const;
 
     /// Initialize k and epsilon uniformly.
     void initialize(double k_init, double eps_init);
@@ -47,6 +55,7 @@ private:
     FVMesh& mesh_;
     double rho_, mu_;
     ScalarField k_, epsilon_;
+    mutable bool wall_y_plus_warned_ = false;
 
     /// Production term: P_k = mu_t * 2 * S_ij * S_ij
     Eigen::VectorXd compute_production(const VectorField& U,

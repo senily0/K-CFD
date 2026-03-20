@@ -39,11 +39,20 @@ add_library(twofluid_core STATIC
     src/hybrid_mesh_generator.cpp
     src/steam_tables.cpp
     src/mesh_reader.cpp
+    src/surface_tension.cpp
 )
 target_include_directories(twofluid_core PUBLIC
     include
     ${EIGEN3_INCLUDE_DIR}
 )
+
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(twofluid_core PUBLIC OpenMP::OpenMP_CXX)
+    message(STATUS "OpenMP found -- parallel execution enabled")
+else()
+    message(STATUS "OpenMP not found -- serial execution only")
+endif()
 
 # Standalone solver executable
 add_executable(twofluid_solver src/main.cpp)

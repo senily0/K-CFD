@@ -6,6 +6,9 @@
 #include <stdexcept>
 #include <tuple>
 #include <vector>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 namespace {
@@ -98,6 +101,7 @@ RawMesh make_structured_quad_mesh(
     double dy = (y1 - y0) / ny;
 
     // Create nodes
+#pragma omp parallel for schedule(static) collapse(2)
     for (int j = 0; j <= ny; ++j) {
         for (int i = 0; i <= nx; ++i) {
             int nid = j * (nx + 1) + i;

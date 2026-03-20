@@ -1,6 +1,9 @@
 #include "twofluid/fvm_operators.hpp"
 #include <algorithm>
 #include <cmath>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 
@@ -107,28 +110,45 @@ void convection_operator_upwind(const FVMesh& mesh,
 
 void temporal_operator(const FVMesh& mesh, double rho, double dt,
                        const Eigen::VectorXd& phi_old, FVMSystem& system) {
-    for (int ci = 0; ci < mesh.n_cells; ++ci) {
-        double vol = mesh.cells[ci].volume;
-        double coeff = rho * vol / dt;
-        system.add_diagonal(ci, coeff);
-        system.add_source(ci, coeff * phi_old(ci));
+    int n = mesh.n_cells;
+    // Pre-compute coefficients in parallel, then add serially (add_diagonal/add_source are not thread-safe)
+    Eigen::VectorXd coeff_vec(n);
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
+        coeff_vec(ci) = rho * mesh.cells[ci].volume / dt;
+    }
+    for (int ci = 0; ci < n; ++ci) {
+        system.add_diagonal(ci, coeff_vec(ci));
+        system.add_source(ci, coeff_vec(ci) * phi_old(ci));
     }
 }
 
 void source_term(const FVMesh& mesh, const Eigen::VectorXd& source_values,
                  FVMSystem& system) {
-    for (int ci = 0; ci < mesh.n_cells; ++ci) {
-        double vol = mesh.cells[ci].volume;
-        system.add_source(ci, source_values(ci) * vol);
+    int n = mesh.n_cells;
+    Eigen::VectorXd contrib(n);
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
+        contrib(ci) = source_values(ci) * mesh.cells[ci].volume;
+    }
+    for (int ci = 0; ci < n; ++ci) {
+        system.add_source(ci, contrib(ci));
     }
 }
 
 void linearized_source(const FVMesh& mesh, const Eigen::VectorXd& Sp,
                        const Eigen::VectorXd& Su, FVMSystem& system) {
-    for (int ci = 0; ci < mesh.n_cells; ++ci) {
+    int n = mesh.n_cells;
+    Eigen::VectorXd diag_contrib(n), src_contrib(n);
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
         double vol = mesh.cells[ci].volume;
-        system.add_diagonal(ci, -Sp(ci) * vol);
-        system.add_source(ci, Su(ci) * vol);
+        diag_contrib(ci) = -Sp(ci) * vol;
+        src_contrib(ci)  =  Su(ci) * vol;
+    }
+    for (int ci = 0; ci < n; ++ci) {
+        system.add_diagonal(ci, diag_contrib(ci));
+        system.add_source(ci, src_contrib(ci));
     }
 }
 
@@ -184,11 +204,17 @@ void temporal_operator_bdf2(const FVMesh& mesh, double rho, double dt,
                              const Eigen::VectorXd& phi_old,
                              const Eigen::VectorXd& phi_old_old,
                              FVMSystem& system) {
-    for (int ci = 0; ci < mesh.n_cells; ++ci) {
-        double vol = mesh.cells[ci].volume;
-        double coeff = rho * vol / (2.0 * dt);
-        system.add_diagonal(ci, 3.0 * coeff);
-        system.add_source(ci, 4.0 * coeff * phi_old(ci) - coeff * phi_old_old(ci));
+    int n = mesh.n_cells;
+    Eigen::VectorXd diag_contrib(n), src_contrib(n);
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
+        double coeff = rho * mesh.cells[ci].volume / (2.0 * dt);
+        diag_contrib(ci) = 3.0 * coeff;
+        src_contrib(ci)  = 4.0 * coeff * phi_old(ci) - coeff * phi_old_old(ci);
+    }
+    for (int ci = 0; ci < n; ++ci) {
+        system.add_diagonal(ci, diag_contrib(ci));
+        system.add_source(ci, src_contrib(ci));
     }
 }
 
@@ -242,11 +268,16 @@ void diffusion_operator_corrected(const FVMesh& mesh, const ScalarField& gamma,
 
 void under_relax(FVMSystem& system, const ScalarField& phi, double alpha) {
     if (alpha >= 1.0) return;
-    for (int ci = 0; ci < system.n; ++ci) {
+    int n = system.n;
+    Eigen::VectorXd factors(n);
+#pragma omp parallel for schedule(static)
+    for (int ci = 0; ci < n; ++ci) {
         double ap = system.diag(ci);
-        double factor = ap * (1.0 - alpha) / alpha;
-        system.add_diagonal(ci, factor);
-        system.add_source(ci, factor * phi.values(ci));
+        factors(ci) = ap * (1.0 - alpha) / alpha;
+    }
+    for (int ci = 0; ci < n; ++ci) {
+        system.add_diagonal(ci, factors(ci));
+        system.add_source(ci, factors(ci) * phi.values(ci));
     }
 }
 

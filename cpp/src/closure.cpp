@@ -2,6 +2,9 @@
 
 #include <cmath>
 #include <algorithm>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace twofluid {
 
@@ -14,6 +17,7 @@ Eigen::VectorXd schiller_naumann_drag(const Eigen::VectorXd& Re_p_in) {
     Eigen::VectorXd Re_p = Re_p_in.cwiseMax(1e-10);
     Eigen::VectorXd C_D(n);
 
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         if (Re_p[i] < 1000.0) {
             C_D[i] = 24.0 / Re_p[i] * (1.0 + 0.15 * std::pow(Re_p[i], 0.687));
@@ -41,6 +45,7 @@ Eigen::VectorXd drag_coefficient_implicit(
 
     // Relative velocity magnitude
     Eigen::VectorXd u_rel_mag(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double mag_sq = 0.0;
         for (int d = 0; d < ndim; ++d) {
@@ -55,6 +60,7 @@ Eigen::VectorXd drag_coefficient_implicit(
 
     // K_drag = 0.75 * C_D * alpha_g * rho_l * |u_rel| / d_b
     Eigen::VectorXd K_drag(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         K_drag[i] = 0.75 * C_D[i] * alpha_g[i] * rho_l * u_rel_mag[i] / d_b;
     }
@@ -74,6 +80,7 @@ Eigen::VectorXd ranz_marshall_nusselt(
     int ndim = static_cast<int>(U_g.cols());
 
     Eigen::VectorXd u_rel_mag(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double mag_sq = 0.0;
         for (int d = 0; d < ndim; ++d) {
@@ -88,6 +95,7 @@ Eigen::VectorXd ranz_marshall_nusselt(
     double Pr = mu_l * cp_l / k_l;
 
     Eigen::VectorXd Nu(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         Nu[i] = 2.0 + 0.6 * std::pow(Re_p[i], 0.5) * std::pow(Pr, 0.333);
     }
@@ -111,6 +119,7 @@ std::pair<Eigen::VectorXd, Eigen::VectorXd> interfacial_heat_transfer(
     Eigen::VectorXd h_i(n);
     Eigen::VectorXd a_i(n);
 
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         h_i[i] = Nu[i] * k_l / d_b;
         a_i[i] = 6.0 * alpha_g[i] / std::max(d_b, 1e-15);
@@ -135,6 +144,7 @@ Eigen::VectorXd sato_bubble_induced_turbulence(
     int ndim = static_cast<int>(U_g.cols());
 
     Eigen::VectorXd mu_t_BIT(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double mag_sq = 0.0;
         for (int d = 0; d < ndim; ++d) {
@@ -176,6 +186,7 @@ Eigen::VectorXd grace_drag(const Eigen::VectorXd& alpha_g, double rho_l, double 
         J = 3.42 * std::pow(std::max(H, 1e-15), 0.441);
 
     Eigen::VectorXd K_drag(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double mag_sq = 0.0;
         for (int d = 0; d < ndim; ++d) {
@@ -212,6 +223,7 @@ Eigen::VectorXd tomiyama_drag(const Eigen::VectorXd& alpha_g, double rho_l, doub
     double C_D_eo_limit = 8.0 / 3.0 * Eo / std::max(Eo + 4.0, 1e-15);
 
     Eigen::VectorXd K_drag(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double mag_sq = 0.0;
         for (int d = 0; d < ndim; ++d) {
@@ -242,6 +254,7 @@ Eigen::VectorXd ishii_zuber_drag(const Eigen::VectorXd& alpha_g, double rho_l,
     int ndim = static_cast<int>(U_g.cols());
 
     Eigen::VectorXd K_drag(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double mag_sq = 0.0;
         for (int d = 0; d < ndim; ++d) {
@@ -299,6 +312,7 @@ Eigen::VectorXd lift_force_tomiyama(
     // Output: scalar per cell (magnitude of lift body force component aligned with curl)
     // F_lift = C_L * alpha_g * rho_l * |u_rel x curl_U_l|  (signed via C_L)
     Eigen::VectorXd F_lift(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double mag_sq = 0.0;
         for (int d = 0; d < ndim; ++d) {
@@ -344,6 +358,7 @@ Eigen::VectorXd wall_lubrication_antal(
 
     // Output: scalar magnitude of wall lubrication force per cell
     Eigen::VectorXd F_wl(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double mag_sq = 0.0;
         for (int d = 0; d < ndim; ++d) {
@@ -380,6 +395,7 @@ Eigen::VectorXd turbulent_dispersion_burns(
     int ndim = static_cast<int>(grad_alpha_g.cols());
 
     Eigen::VectorXd F_td(n);
+#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double denom = std::max(alpha_g[i] * (1.0 - alpha_g[i]), 1e-15);
 

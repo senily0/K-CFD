@@ -89,13 +89,13 @@ mingw32-make -j4
 | ID | 문제 | 상태 |
 |----|------|------|
 | H1 | ~~표준 k-ε만 구현~~ → **k-ω SST 추가** (Menter 1994, F1/F2, y+ 모니터링) | **DONE** |
-| H2 | **벽함수만 (high-Re)** — Low-Re 모델 없음 (SST에 y+ 모니터링 추가됨) | TODO |
-| H3 | **SparseLU 직접 솔버** — >100k셀 메모리 부족. AMG 필요 | TODO |
+| H2 | ~~벽함수만~~ → **자동 벽 처리** (Low-Re/Wall-Func/AUTOMATIC 블렌딩, y+ 경고) | **DONE** |
+| H3 | ~~SparseLU 직접 솔버~~ → **AMG V-cycle 전처리기** + 전처리 BiCGSTAB/CG | **DONE** |
 | H4 | ~~Schiller-Naumann 항력만~~ → **Grace, Tomiyama, Ishii-Zuber 추가** | **DONE** |
 | H5 | ~~계면력: 항력만~~ → **Tomiyama 양력, Antal 벽윤활, Burns 난류분산 추가** | **DONE** |
-| H6 | **표면장력 없음** — CSF, 모세관 압력 미구현 | TODO |
+| H6 | ~~표면장력 없음~~ → **CSF 표면장력 모델** (Brackbill 1992, 곡률/델타 계산) | **DONE** |
 | H7 | ~~후방 오일러만~~ → **BDF2 시간적분 추가** (`temporal_operator_bdf2`) | **DONE** |
-| H8 | **병렬 컴퓨팅 없음** — MPI/OpenMP 전무 | TODO |
+| H8 | ~~병렬 컴퓨팅 없음~~ → **OpenMP 병렬화** (closure, gradient, interpolation, solver 핫루프) | **DONE** |
 | H9 | ~~SIMPLE만~~ → **PISO 알고리즘 추가** (`solve_transient_step`) | **DONE** |
 | H10 | ~~비직교 보정 없음~~ → **비직교 보정 확산 연산자 추가** (`diffusion_operator_corrected`) | **DONE** |
 | H11 | ~~경계면 탐색 O(n²)~~ → **해시맵 캐시** (`build_boundary_face_cache`) | **DONE** |

@@ -47,6 +47,10 @@ public:
                const std::unordered_map<std::string, std::string>& bc_types,
                double alpha_k = 0.7, double alpha_w = 0.7);
 
+    /// Wall treatment mode
+    enum class WallTreatment { WALL_FUNCTIONS, LOW_RE, AUTOMATIC };
+    WallTreatment wall_treatment = WallTreatment::AUTOMATIC;
+
     void apply_wall_functions(const VectorField& U,
                               const std::vector<std::string>& wall_patches);
 
@@ -65,6 +69,7 @@ private:
     ScalarField k_, omega_;
     Eigen::VectorXd wall_dist_;  // wall distance per cell
     bool wall_dist_computed_ = false;
+    mutable bool wall_y_plus_warned_ = false;
 
     // Blending functions
     Eigen::VectorXd compute_F1() const;
