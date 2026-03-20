@@ -121,8 +121,9 @@ Eigen::VectorXd SIMPLESolver::compute_face_mass_flux() {
             uf = w * U_.values.row(o).head(ndim).transpose()
                  + (1.0 - w) * U_.values.row(nb).head(ndim).transpose();
 
-            // Rhie-Chow momentum interpolation
-            if (aP_.count(0) && aP_[0].size() == mesh_.n_cells) {
+            // Rhie-Chow momentum interpolation (skip first iteration when aP is not yet meaningful)
+            if (aP_.count(0) && aP_[0].size() == mesh_.n_cells
+                && aP_[0].maxCoeff() > 1.1) {  // aP initialized to 1.0; skip until real values
                 double aP_avg_o = 0.0, aP_avg_nb = 0.0;
                 for (int c = 0; c < ndim; ++c) {
                     aP_avg_o += aP_[c](o);
