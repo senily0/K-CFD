@@ -10,6 +10,7 @@
 #include "twofluid/fvm_operators.hpp"
 #include "twofluid/closure.hpp"
 #include "twofluid/simple_solver.hpp"  // for SolveResult
+#include "twofluid/chemistry.hpp"
 
 namespace twofluid {
 
@@ -37,6 +38,12 @@ public:
     Eigen::VectorXd g;  // gravity vector (ndim)
 
     double dt = 0.001;
+
+    // Adaptive time stepping
+    bool adaptive_dt = false;
+    double cfl_target = 0.5;
+    double dt_min = 1e-8;
+    double dt_max = 1.0;
 
     // Physical limits (user-configurable, no hardcoded clipping)
     double U_max = 1e6;       // velocity clamp [m/s] — set per problem
@@ -71,6 +78,13 @@ public:
 
     // Time scheme: "euler" or "bdf2"
     std::string time_scheme = "euler";
+
+    // Species transport (optional)
+    bool solve_species = false;
+    double species_D = 1e-5;          // diffusion coefficient
+    double species_k_r = 0.0;         // reaction rate (0 = no reaction)
+    std::string species_bc_inlet_patch;
+    double species_C_inlet = 1.0;
 
     // Initialize
     void initialize(double alpha_g_init = 0.05);
@@ -144,6 +158,10 @@ private:
     // Per-component aP storage for pressure correction
     Eigen::VectorXd aP_l_, aP_g_storage_;
     bool has_aP_l_ = false, has_aP_g_ = false;
+
+    // Species transport
+    std::unique_ptr<SpeciesTransportSolver> species_solver_;
+    std::unique_ptr<FirstOrderReaction> reaction_;
 };
 
 } // namespace twofluid

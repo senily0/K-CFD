@@ -125,4 +125,128 @@ Eigen::MatrixXd least_squares_gradient(const ScalarField& phi) {
     return grad;
 }
 
+Eigen::VectorXd barth_jespersen_limiter(const FVMesh& mesh,
+                                         const ScalarField& phi,
+                                         const Eigen::MatrixXd& grad_phi) {
+    int n = mesh.n_cells;
+    int ndim = mesh.ndim;
+    Eigen::VectorXd limiter = Eigen::VectorXd::Ones(n);
+
+    // Compute phi_max and phi_min over each cell and its neighbours
+    Eigen::VectorXd phi_max = phi.values;
+    Eigen::VectorXd phi_min = phi.values;
+
+    for (int fid = 0; fid < mesh.n_faces; ++fid) {
+        const Face& face = mesh.faces[fid];
+        int o = face.owner;
+        if (face.neighbour >= 0) {
+            int nb = face.neighbour;
+            phi_max[o]  = std::max(phi_max[o],  phi.values[nb]);
+            phi_min[o]  = std::min(phi_min[o],  phi.values[nb]);
+            phi_max[nb] = std::max(phi_max[nb], phi.values[o]);
+            phi_min[nb] = std::min(phi_min[nb], phi.values[o]);
+        }
+    }
+
+    // For each cell, compute face reconstructed values and find minimum limiter
+    for (int ci = 0; ci < n; ++ci) {
+        const Cell& cell = mesh.cells[ci];
+        Eigen::VectorXd xP = cell.center.head(ndim);
+        double phi_i = phi.values[ci];
+        double pmax  = phi_max[ci];
+        double pmin  = phi_min[ci];
+        double lim_i = 1.0;
+
+        for (int fid : cell.faces) {
+            const Face& face = mesh.faces[fid];
+            Eigen::VectorXd xF = face.center.head(ndim);
+            Eigen::VectorXd dr  = xF - xP;
+
+            double phi_face = phi_i + grad_phi.row(ci).dot(dr);
+            double delta    = phi_face - phi_i;
+
+            double lim_f = 1.0;
+            if (delta > 1e-30) {
+                lim_f = std::min(1.0, (pmax - phi_i) / delta);
+            } else if (delta < -1e-30) {
+                lim_f = std::min(1.0, (pmin - phi_i) / delta);
+            }
+            lim_i = std::min(lim_i, lim_f);
+        }
+
+        limiter[ci] = std::max(0.0, lim_i);
+    }
+
+    return limiter;
+}
+
+Eigen::VectorXd venkatakrishnan_limiter(const FVMesh& mesh,
+                                          const ScalarField& phi,
+                                          const Eigen::MatrixXd& grad_phi,
+                                          double epsilon) {
+    int n = mesh.n_cells;
+    int ndim = mesh.ndim;
+    Eigen::VectorXd limiter = Eigen::VectorXd::Ones(n);
+
+    // Compute phi_max and phi_min over each cell and its neighbours
+    Eigen::VectorXd phi_max = phi.values;
+    Eigen::VectorXd phi_min = phi.values;
+
+    for (int fid = 0; fid < mesh.n_faces; ++fid) {
+        const Face& face = mesh.faces[fid];
+        int o = face.owner;
+        if (face.neighbour >= 0) {
+            int nb = face.neighbour;
+            phi_max[o]  = std::max(phi_max[o],  phi.values[nb]);
+            phi_min[o]  = std::min(phi_min[o],  phi.values[nb]);
+            phi_max[nb] = std::max(phi_max[nb], phi.values[o]);
+            phi_min[nb] = std::min(phi_min[nb], phi.values[o]);
+        }
+    }
+
+    double eps2 = epsilon * epsilon;
+
+    for (int ci = 0; ci < n; ++ci) {
+        const Cell& cell = mesh.cells[ci];
+        Eigen::VectorXd xP = cell.center.head(ndim);
+        double phi_i   = phi.values[ci];
+        double delta_max = phi_max[ci] - phi_i;
+        double delta_min = phi_min[ci] - phi_i;
+        double lim_i   = 1.0;
+
+        for (int fid : cell.faces) {
+            const Face& face = mesh.faces[fid];
+            Eigen::VectorXd xF = face.center.head(ndim);
+            double delta_face = grad_phi.row(ci).dot(xF - xP);
+
+            double delta_ref;
+            if (delta_face > 0.0) {
+                delta_ref = delta_max;
+            } else if (delta_face < 0.0) {
+                delta_ref = delta_min;
+            } else {
+                continue;
+            }
+
+            double df2  = delta_face * delta_face;
+            double dr2  = delta_ref  * delta_ref;
+            double num  = dr2 + eps2 + 2.0 * delta_face * delta_ref;
+            double den  = dr2 + 2.0 * df2 + delta_face * delta_ref + eps2;
+            double lim_f = (std::abs(den) > 1e-30) ? num / den : 1.0;
+
+            lim_i = std::min(lim_i, lim_f);
+        }
+
+        limiter[ci] = std::max(0.0, std::min(1.0, lim_i));
+    }
+
+    return limiter;
+}
+
+Eigen::MatrixXd limit_gradient(const Eigen::MatrixXd& grad_phi,
+                                 const Eigen::VectorXd& limiter) {
+    // Broadcast limiter (n,) over each column of grad_phi (n, ndim)
+    return limiter.asDiagonal() * grad_phi;
+}
+
 } // namespace twofluid

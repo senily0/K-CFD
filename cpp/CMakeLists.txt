@@ -9,8 +9,19 @@ if(MINGW AND CMAKE_BUILD_TYPE STREQUAL "Release")
     string(REPLACE "-O2" "-O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 endif()
 
-# Eigen: use the local MinGW include path directly
-set(EIGEN3_INCLUDE_DIR "C:/mingw64/include/eigen-3.4.0")
+# Try system Eigen first, fall back to local path
+find_package(Eigen3 3.4 QUIET)
+if(NOT Eigen3_FOUND)
+    # Fallback: check common locations
+    if(EXISTS "C:/mingw64/include/eigen-3.4.0")
+        set(EIGEN3_INCLUDE_DIR "C:/mingw64/include/eigen-3.4.0")
+    elseif(EXISTS "/usr/include/eigen3")
+        set(EIGEN3_INCLUDE_DIR "/usr/include/eigen3")
+    else()
+        message(FATAL_ERROR "Eigen3 not found. Install with: apt install libeigen3-dev (Linux) or specify -DEIGEN3_INCLUDE_DIR=...")
+    endif()
+    message(STATUS "Eigen3 found at: ${EIGEN3_INCLUDE_DIR}")
+endif()
 
 # Core static library
 add_library(twofluid_core STATIC
@@ -36,15 +47,22 @@ add_library(twofluid_core STATIC
     src/amr.cpp
     src/mesh_generator_3d.cpp
     src/chemistry.cpp
+    src/checkpoint.cpp
     src/hybrid_mesh_generator.cpp
     src/steam_tables.cpp
     src/mesh_reader.cpp
     src/surface_tension.cpp
+    src/mpi_comm.cpp
+    src/partitioning.cpp
+    src/mpi_solver.cpp
 )
 target_include_directories(twofluid_core PUBLIC
     include
-    ${EIGEN3_INCLUDE_DIR}
+    $<$<NOT:$<BOOL:${Eigen3_FOUND}>>:${EIGEN3_INCLUDE_DIR}>
 )
+if(Eigen3_FOUND)
+    target_link_libraries(twofluid_core PUBLIC Eigen3::Eigen)
+endif()
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
@@ -52,6 +70,14 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "OpenMP found -- parallel execution enabled")
 else()
     message(STATUS "OpenMP not found -- serial execution only")
+endif()
+
+option(USE_MPI "Enable MPI distributed parallel" OFF)
+if(USE_MPI)
+    find_package(MPI REQUIRED)
+    target_compile_definitions(twofluid_core PUBLIC USE_MPI)
+    target_link_libraries(twofluid_core PUBLIC MPI::MPI_CXX)
+    message(STATUS "MPI found -- distributed parallel enabled")
 endif()
 
 # Standalone solver executable

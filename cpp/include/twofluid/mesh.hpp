@@ -55,6 +55,17 @@ public:
 
     /// Return a human-readable summary string.
     std::string summary() const;
+
+    struct MeshQuality {
+        double max_non_orthogonality;  // degrees
+        double avg_non_orthogonality;
+        double max_skewness;
+        double avg_skewness;
+        double max_aspect_ratio;
+        int n_bad_cells;  // non-orth > 70 degrees
+    };
+
+    MeshQuality compute_quality() const;
 };
 
 } // namespace twofluid

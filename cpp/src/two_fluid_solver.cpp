@@ -4,6 +4,8 @@
 #include "twofluid/interpolation.hpp"
 #include "twofluid/surface_tension.hpp"
 #include "twofluid/steam_tables.hpp"
+#include "twofluid/time_control.hpp"
+#include "twofluid/chemistry.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -55,6 +57,24 @@ TwoFluidSolver::TwoFluidSolver(FVMesh& mesh)
 void TwoFluidSolver::initialize(double alpha_g_init) {
     alpha_g_.set_uniform(alpha_g_init);
     alpha_l_.set_uniform(1.0 - alpha_g_init);
+
+    if (solve_species) {
+        if (species_k_r > 0) {
+            reaction_ = std::make_unique<FirstOrderReaction>(species_k_r);
+        }
+        species_solver_ = std::make_unique<SpeciesTransportSolver>(
+            mesh_, rho_l, species_D, reaction_.get());
+        species_solver_->C.set_uniform(0.0);
+        if (!species_bc_inlet_patch.empty()) {
+            species_solver_->set_bc(species_bc_inlet_patch, "dirichlet", species_C_inlet);
+        }
+        // Set all other patches to zero_gradient
+        for (auto& [name, fids] : mesh_.boundary_patches) {
+            if (name != species_bc_inlet_patch) {
+                species_solver_->set_bc(name, "zero_gradient");
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -245,7 +265,33 @@ SolveResult TwoFluidSolver::solve_transient(double t_end, double dt_in,
     int step = 0;
     std::vector<double> residuals;
 
+    // Adaptive time stepping controller (created only when enabled)
+    std::unique_ptr<AdaptiveTimeControl> atc;
+    if (adaptive_dt) {
+        atc = std::make_unique<AdaptiveTimeControl>(dt_in, dt_min, dt_max, cfl_target);
+    }
+
     while (t < t_end - 1e-15) {
+        // Compute adaptive dt before storing old values
+        if (adaptive_dt && atc) {
+            // Velocity magnitude: max of both phases
+            int ndim = mesh_.ndim;
+            Eigen::VectorXd u_mag(mesh_.n_cells);
+            for (int ci = 0; ci < mesh_.n_cells; ++ci) {
+                double ul = U_l_.values.row(ci).head(ndim).norm();
+                double ug = U_g_.values.row(ci).head(ndim).norm();
+                u_mag[ci] = std::max(ul, ug);
+            }
+            auto info = atc->compute_dt(mesh_, u_mag);
+            dt = info.dt;
+
+            if (step % report_interval == 0) {
+                std::cout << "  [ATC] CFL_max=" << info.cfl_max
+                          << ", dt=" << dt
+                          << " (limited by " << info.dt_limited_by << ")" << std::endl;
+            }
+        }
+
         // Store old values
         alpha_g_.store_old();
         alpha_l_.store_old();
@@ -369,6 +415,12 @@ double TwoFluidSolver::simple_iteration() {
             Eigen::VectorXd mf_l2 = compute_mass_flux(U_l_, rho_l, mesh_);
             Eigen::VectorXd mf_g2 = compute_mass_flux(U_g_, rho_g, mesh_);
             res_energy = solve_coupled_energy(mf_l2, mf_g2, dot_m);
+        }
+
+        // Species transport (after energy solve)
+        if (solve_species && species_solver_) {
+            Eigen::VectorXd mf_l_sp = compute_mass_flux(U_l_, rho_l, mesh_);
+            species_solver_->solve_steady(U_l_, mf_l_sp, 1, 1e-6);
         }
 
         std::vector<double> all_res = res_mom;
