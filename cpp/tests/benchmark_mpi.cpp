@@ -206,6 +206,23 @@ int main(int argc, char* argv[]) {
                   << (n_cells_total * 300.0) / (1024*1024) << " MB\n";
         std::cout << "================================================================\n";
 
+        // Write VTU output for ParaView visualization
+        {
+            std::unordered_map<std::string, Eigen::VectorXd> scalar_data;
+            std::unordered_map<std::string, Eigen::MatrixXd> vector_data;
+            scalar_data["pressure"] = solver.pressure().values;
+            scalar_data["velocity_magnitude"] = solver.velocity().magnitude();
+            vector_data["velocity"] = solver.velocity().values;
+            std::string vtu_file = "benchmark_" + std::to_string(nx) + "x"
+                                 + std::to_string(ny) + "x" + std::to_string(nz) + ".vtu";
+            try {
+                write_vtu(vtu_file, mesh, scalar_data, vector_data);
+                std::cout << "\n  VTU output: " << vtu_file << "\n";
+            } catch (...) {
+                std::cout << "\n  VTU write failed\n";
+            }
+        }
+
         // Scaling projection
         if (comm.size() == 1) {
             std::cout << "\n  Projected scaling (ideal):\n";
