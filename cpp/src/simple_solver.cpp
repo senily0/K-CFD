@@ -546,49 +546,66 @@ double SIMPLESolver::solve_pressure_correction(const Eigen::VectorXd& mf) {
 }
 
 // ---------------------------------------------------------------------------
-// Main SIMPLE loop
+// Single iteration init
 // ---------------------------------------------------------------------------
 
-SolveResult SIMPLESolver::solve_steady() {
-    auto t_start = std::chrono::high_resolution_clock::now();
-
+void SIMPLESolver::init_iteration() {
     int n = mesh_.n_cells;
     int ndim = mesh_.ndim;
     for (int c = 0; c < ndim; ++c) {
         aP_[c] = Eigen::VectorXd::Ones(n);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Single SIMPLE iteration — returns raw (unnormalized) residual
+// ---------------------------------------------------------------------------
+
+double SIMPLESolver::solve_one_iteration() {
+    int ndim = mesh_.ndim;
+
+    Eigen::VectorXd mf = compute_face_mass_flux();
+
+    // Momentum for each component
+    std::vector<double> res_mom;
+    for (int comp = 0; comp < ndim; ++comp) {
+        res_mom.push_back(solve_momentum(comp, mf));
+    }
+
+    // Recompute mass flux
+    mf = compute_face_mass_flux();
+
+    // Pressure correction
+    double res_p = solve_pressure_correction(mf);
+
+    // Turbulence (if enabled)
+    if (turb_) {
+        Eigen::VectorXd mf_turb = compute_face_mass_flux();
+        std::unordered_map<std::string, std::string> turb_bc;
+        for (const auto& [patch, info] : bc_u_) {
+            turb_bc[patch] = "zero_gradient";
+        }
+        turb_->solve(U_, mf_turb, turb_bc);
+        turb_->apply_wall_functions(U_, wall_patches_);
+    }
+
+    return std::max(*std::max_element(res_mom.begin(), res_mom.end()), res_p);
+}
+
+// ---------------------------------------------------------------------------
+// Main SIMPLE loop (uses solve_one_iteration internally)
+// ---------------------------------------------------------------------------
+
+SolveResult SIMPLESolver::solve_steady() {
+    auto t_start = std::chrono::high_resolution_clock::now();
+
+    init_iteration();
 
     std::vector<double> residuals;
     double res0 = -1.0;
 
     for (int it = 0; it < max_iter; ++it) {
-        Eigen::VectorXd mf = compute_face_mass_flux();
-
-        // Solve momentum for each component
-        std::vector<double> res_mom;
-        for (int comp = 0; comp < ndim; ++comp) {
-            res_mom.push_back(solve_momentum(comp, mf));
-        }
-
-        // Recompute mass flux with updated velocity
-        mf = compute_face_mass_flux();
-
-        // Pressure correction
-        double res_p = solve_pressure_correction(mf);
-
-        // Turbulence equations (if enabled)
-        if (turb_) {
-            Eigen::VectorXd mf_turb = compute_face_mass_flux();
-            // Build BC map: walls get zero_gradient, others get zero_gradient too
-            std::unordered_map<std::string, std::string> turb_bc;
-            for (const auto& [patch, info] : bc_u_) {
-                turb_bc[patch] = "zero_gradient";
-            }
-            turb_->solve(U_, mf_turb, turb_bc);
-            turb_->apply_wall_functions(U_, wall_patches_);
-        }
-
-        double res = std::max(*std::max_element(res_mom.begin(), res_mom.end()), res_p);
+        double res = solve_one_iteration();
 
         // Normalize by initial residual
         if (res0 < 0.0 && res > 1e-30) {
@@ -598,11 +615,9 @@ SolveResult SIMPLESolver::solve_steady() {
         residuals.push_back(res_norm);
 
         if (it < 5 || it % 100 == 0) {
+            int ndim = mesh_.ndim;
             std::cout << "    iter " << it << ": res=" << res_norm;
-            for (int c = 0; c < ndim; ++c) {
-                std::cout << " c" << c << "=" << res_mom[c];
-            }
-            std::cout << " p=" << res_p << std::endl;
+            std::cout << " p=" << res << std::endl;
         }
 
         if (res_norm < tol) {

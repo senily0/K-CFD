@@ -32,3 +32,5 @@ Thumbs.db
 
 # Temp
 .omc/
+cpp/build_mpi_check/
+cpp/build/

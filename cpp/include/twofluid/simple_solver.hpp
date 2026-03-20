@@ -50,6 +50,11 @@ public:
     // Solve
     SolveResult solve_steady();
 
+    /// Single SIMPLE iteration. Returns normalized residual.
+    /// Call init_iteration() once before the first call.
+    void init_iteration();
+    double solve_one_iteration();
+
     /// Single PISO time step (transient)
     SolveResult solve_transient_step(double dt);
 

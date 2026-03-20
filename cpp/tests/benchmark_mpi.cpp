@@ -122,11 +122,8 @@ static void set_local_bcs(SIMPLESolver& solver, FVMesh& local_mesh,
     if (patches.count("wall_back") && !patches["wall_back"].empty())
         solver.set_wall("wall_back");
 
-    // mpi_interface: zero-gradient (Neumann) for velocity.
-    // Pressure is Dirichlet at p=0 (set_outlet behavior).
-    // After each inner solve, boundary cell values are blended with
-    // received neighbor values so that zero-gradient propagates the
-    // coupled information to the face on the next solve iteration.
+    // mpi_interface: zero-gradient (outlet) for both velocity and pressure.
+    // Ghost exchange blends neighbor values into boundary cells.
     if (patches.count("mpi_interface") && !patches["mpi_interface"].empty()) {
         solver.set_outlet("mpi_interface", 0.0);
     }
@@ -455,32 +452,11 @@ static void exchange_interface_values(
             double n = static_cast<double>(indices.size());
             avg_u /= n; avg_v /= n; avg_w /= n; avg_p /= n;
 
-            // Blend into cell values
+            // Blend neighbor values into cell values (zero-gradient BC propagates to face)
             solver.velocity().values(ci, 0) += relax * (avg_u - solver.velocity().values(ci, 0));
             solver.velocity().values(ci, 1) += relax * (avg_v - solver.velocity().values(ci, 1));
             solver.velocity().values(ci, 2) += relax * (avg_w - solver.velocity().values(ci, 2));
             solver.pressure().values(ci) += relax * (avg_p - solver.pressure().values(ci));
-        }
-
-        // Also update boundary_values so pressure gradient at
-        // interface faces uses the neighbor data
-        for (int i = 0; i < n_recv; ++i) {
-            int pi = ex.recv_patch_indices[i];
-            if (pi < 0) continue;
-            double recv_u = recv_buf[i * 4 + 0];
-            double recv_v = recv_buf[i * 4 + 1];
-            double recv_w = recv_buf[i * 4 + 2];
-            double recv_p = recv_buf[i * 4 + 3];
-
-            if (u_bv_it != solver.velocity().boundary_values.end()) {
-                auto& bv = u_bv_it->second;
-                bv(pi, 0) = recv_u;
-                bv(pi, 1) = recv_v;
-                bv(pi, 2) = recv_w;
-            }
-            if (p_bv_it != solver.pressure().boundary_values.end()) {
-                p_bv_it->second(pi) = recv_p;
-            }
         }
     }
 #else
@@ -715,17 +691,15 @@ int main(int argc, char* argv[]) {
         set_local_bcs(local_solver, clean_mesh, Ly, Lz, U_mean);
 
         // ----------------------------------------------------------
-        // 3e. Outer Schwarz iteration loop with REAL ghost exchange
+        // 3e. Iteration loop: 1 SIMPLE iteration + ghost exchange each step
         // ----------------------------------------------------------
-        const int inner_iters = 1;   // 1 SIMPLE iteration per ghost exchange (essential for convergence)
-        const int outer_iters = (max_iter + inner_iters - 1) / inner_iters;
         const double tol = 1e-8;
 
         comm.barrier();
 
         if (comm.is_root()) {
-            std::cout << "\nSolving: " << outer_iters << " outer x "
-                      << inner_iters << " inner iterations...\n" << std::flush;
+            std::cout << "\nSolving: " << max_iter << " iterations with ghost exchange...\n"
+                      << std::flush;
         }
 
         auto t_solve_start = std::chrono::high_resolution_clock::now();
@@ -733,33 +707,28 @@ int main(int argc, char* argv[]) {
         bool converged = false;
         double final_residual = 1.0;
 
-        // Store previous velocity for convergence check
-        Eigen::MatrixXd U_prev = local_solver.velocity().values;
+        const int inner_iters = 5;
+        const int outer_iters = (max_iter + inner_iters - 1) / inner_iters;
 
         for (int outer = 0; outer < outer_iters; ++outer) {
-            // Inner SIMPLE iterations on local mesh
+            // 1. Inner SIMPLE iterations on local mesh
             local_solver.max_iter = inner_iters;
-            local_solver.tol = tol * 0.1;  // tight inner tol
-            SolveResult inner_result = local_solver.solve_steady();
+            local_solver.tol = 1e-15;
+            auto inner_result = local_solver.solve_steady();
             total_iters += inner_result.iterations;
 
-            // Exchange ghost values AFTER inner solve.
-            // Blend neighbor cell values into boundary cells.
-            exchange_interface_values(comm, local_solver, exchanges, 0.7);
+            // 2. Exchange ghost values (blend into boundary cells)
+            exchange_interface_values(comm, local_solver, exchanges, 0.5);
 
-            // Convergence check: relative change in velocity field
-            double local_change = (local_solver.velocity().values - U_prev).norm();
-            double local_norm = std::max(local_solver.velocity().values.norm(), 1e-10);
-            double local_res = local_change / local_norm;
-            U_prev = local_solver.velocity().values;
+            double res = inner_result.residuals.empty() ? 1.0 : inner_result.residuals.back();
 
-            double global_res = comm.all_reduce_max(local_res);
+            // 3. Global convergence check
+            double global_res = comm.all_reduce_max(res);
             final_residual = global_res;
 
-            if (comm.is_root() && (outer % 5 == 0 || outer == outer_iters - 1)) {
-                std::cout << "  Outer " << std::setw(3) << outer + 1 << "/"
-                          << outer_iters << "  inner_iters=" << inner_result.iterations
-                          << "  global_res=" << std::scientific << std::setprecision(3)
+            if (comm.is_root() && (outer < 5 || outer % 5 == 0 || outer == outer_iters - 1)) {
+                std::cout << "  Outer " << std::setw(3) << outer + 1 << "/" << outer_iters
+                          << "  res=" << std::scientific << std::setprecision(3)
                           << global_res << std::fixed << "\n" << std::flush;
             }
 
