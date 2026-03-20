@@ -9,6 +9,7 @@
 #include <iostream>
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
+#include <Eigen/IterativeLinearSolvers>
 
 namespace twofluid {
 
@@ -354,15 +355,23 @@ double SIMPLESolver::solve_momentum(int comp, const Eigen::VectorXd& mf) {
     A.setFromTriplets(triplets.begin(), triplets.end());
     A.makeCompressed();
 
-    Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
-    solver.analyzePattern(A);
-    solver.factorize(A);
-
     Eigen::VectorXd phi;
-    if (solver.info() == Eigen::Success) {
-        phi = solver.solve(b);
+    if (linear_solver_type == "bicgstab") {
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> iterative;
+        iterative.setTolerance(1e-6);
+        iterative.setMaxIterations(500);
+        iterative.compute(A);
+        phi = iterative.solveWithGuess(b, phi_old);
+        if (iterative.info() != Eigen::Success || phi.hasNaN()) phi = phi_old;
     } else {
-        phi = phi_old;
+        Eigen::SparseLU<Eigen::SparseMatrix<double>> direct;
+        direct.analyzePattern(A);
+        direct.factorize(A);
+        if (direct.info() == Eigen::Success) {
+            phi = direct.solve(b);
+        } else {
+            phi = phi_old;
+        }
     }
 
     // Check for NaN
@@ -481,19 +490,27 @@ double SIMPLESolver::solve_pressure_correction(const Eigen::VectorXd& mf) {
     A.setFromTriplets(triplets.begin(), triplets.end());
     A.makeCompressed();
 
-    Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
-    solver.analyzePattern(A);
-    solver.factorize(A);
-
     Eigen::VectorXd pp;
-    if (solver.info() == Eigen::Success) {
-        pp = solver.solve(b);
+    if (linear_solver_type == "bicgstab") {
+        // Pressure is symmetric → use CG; fallback to BiCGSTAB
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> iterative;
+        iterative.setTolerance(1e-6);
+        iterative.setMaxIterations(1000);
+        iterative.compute(A);
+        pp = iterative.solve(b);
+        if (iterative.info() != Eigen::Success || pp.hasNaN()) {
+            pp = Eigen::VectorXd::Zero(n);
+        }
     } else {
-        pp = Eigen::VectorXd::Zero(n);
-    }
-
-    if (pp.hasNaN()) {
-        pp = Eigen::VectorXd::Zero(n);
+        Eigen::SparseLU<Eigen::SparseMatrix<double>> direct;
+        direct.analyzePattern(A);
+        direct.factorize(A);
+        if (direct.info() == Eigen::Success) {
+            pp = direct.solve(b);
+        } else {
+            pp = Eigen::VectorXd::Zero(n);
+        }
+        if (pp.hasNaN()) pp = Eigen::VectorXd::Zero(n);
     }
 
     // Velocity correction via Green-Gauss gradient of p'

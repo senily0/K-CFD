@@ -107,6 +107,12 @@ if(MINGW)
     target_link_options(verification_cases PRIVATE -Wl,--stack,8388608)
 endif()
 
+add_executable(benchmark_mpi tests/benchmark_mpi.cpp)
+target_link_libraries(benchmark_mpi PRIVATE twofluid_core)
+if(MINGW)
+    target_link_options(benchmark_mpi PRIVATE -Wl,--stack,16777216)
+endif()
+
 # pybind11 module (optional -- only if pybind11 is found)
 find_package(pybind11 QUIET)
 if(pybind11_FOUND)

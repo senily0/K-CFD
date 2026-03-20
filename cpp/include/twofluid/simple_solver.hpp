@@ -35,6 +35,9 @@ public:
     PVCoupling pv_coupling = PVCoupling::SIMPLE;
     int piso_correctors = 2;  // number of PISO correction steps
 
+    // Linear solver: "direct" (SparseLU) or "bicgstab"
+    std::string linear_solver_type = "direct";  // "bicgstab" for large 3D
+
     // Boundary conditions
     void set_inlet(const std::string& patch, const Eigen::MatrixXd& U_vals);
     void set_wall(const std::string& patch);
