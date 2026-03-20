@@ -55,6 +55,7 @@ add_library(twofluid_core STATIC
     src/mpi_comm.cpp
     src/partitioning.cpp
     src/mpi_solver.cpp
+    src/json_input.cpp
 )
 target_include_directories(twofluid_core PUBLIC
     include

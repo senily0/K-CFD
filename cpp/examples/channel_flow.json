@@ -1,0 +1,14 @@
+{
+    "case": "channel",
+    "nx": 50,
+    "ny": 20,
+    "Lx": 1.0,
+    "Ly": 0.1,
+    "Re": 100,
+    "rho": 1.0,
+    "max_iter": 500,
+    "tol": 1e-5,
+    "linear_solver": "bicgstab",
+    "turbulence": false,
+    "output": "channel.vtu"
+}
