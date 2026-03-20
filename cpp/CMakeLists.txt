@@ -104,7 +104,7 @@ endif()
 add_executable(verification_cases tests/verification_cases.cpp)
 target_link_libraries(verification_cases PRIVATE twofluid_core)
 if(MINGW)
-    target_link_options(verification_cases PRIVATE -Wl,--stack,8388608)
+    target_link_options(verification_cases PRIVATE -Wl,--stack,16777216)
 endif()
 
 add_executable(benchmark_mpi tests/benchmark_mpi.cpp)
