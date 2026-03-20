@@ -106,6 +106,9 @@ Eigen::VectorXd SIMPLESolver::compute_face_mass_flux() {
     int ndim = mesh_.ndim;
     Eigen::VectorXd mf = Eigen::VectorXd::Zero(nf);
 
+    // Compute cell-center pressure gradient for Rhie-Chow interpolation
+    grad_p_ = green_gauss_gradient(p_);
+
     for (int fid = 0; fid < nf; ++fid) {
         const Face& face = mesh_.faces[fid];
         int o = face.owner;
@@ -118,7 +121,7 @@ Eigen::VectorXd SIMPLESolver::compute_face_mass_flux() {
             uf = w * U_.values.row(o).head(ndim).transpose()
                  + (1.0 - w) * U_.values.row(nb).head(ndim).transpose();
 
-            // Rhie-Chow pressure correction to suppress checkerboard
+            // Rhie-Chow momentum interpolation
             if (aP_.count(0) && aP_[0].size() == mesh_.n_cells) {
                 double aP_avg_o = 0.0, aP_avg_nb = 0.0;
                 for (int c = 0; c < ndim; ++c) {
@@ -134,27 +137,26 @@ Eigen::VectorXd SIMPLESolver::compute_face_mass_flux() {
                 double dP_nb = vol_nb / aP_avg_nb;
                 double dP_f = w * dP_o + (1.0 - w) * dP_nb;
 
-                // Face pressure gradient (compact stencil)
                 Eigen::Vector3d d_vec = mesh_.cells[nb].center - mesh_.cells[o].center;
                 double d_mag = d_vec.head(ndim).norm();
                 if (d_mag > 1e-30) {
-                    double dp_face = (p_.values[nb] - p_.values[o]) / d_mag;
+                    // Compact face pressure gradient (scalar along d_vec direction)
+                    double dp_compact = (p_.values[nb] - p_.values[o]) / d_mag;
 
-                    // Interpolated cell-center pressure gradient
-                    // (approximated from adjacent cell values)
-                    double dp_interp = dp_face;  // consistent for uniform grids
-
-                    // Rhie-Chow correction: -dP_f * (dp_face - dp_interp) * n * A
-                    // On non-uniform grids this removes checkerboard modes
-                    // The full correction also adds: dP_f * (p_nb - p_o)/d * n_comp
-                    // minus the interpolated gradient dotted with normal
-                    // For collocated grids, the key term is the volume-weighted
-                    // pressure gradient difference
+                    // Interpolated cell-center pressure gradient dotted with unit d_vec
+                    double dp_interp = 0.0;
                     for (int dd = 0; dd < ndim; ++dd) {
                         double n_comp = d_vec[dd] / d_mag;
-                        uf[dd] -= dP_f * dp_face * n_comp
-                                - w * (dP_o * dp_face * n_comp)
-                                - (1.0 - w) * (dP_nb * dp_face * n_comp);
+                        double grad_p_o = grad_p_(o, dd);
+                        double grad_p_nb = grad_p_(nb, dd);
+                        double grad_p_f = w * grad_p_o + (1.0 - w) * grad_p_nb;
+                        dp_interp += grad_p_f * n_comp;
+                    }
+
+                    // Rhie-Chow correction: difference between compact and interpolated
+                    for (int dd = 0; dd < ndim; ++dd) {
+                        double n_comp = d_vec[dd] / d_mag;
+                        uf[dd] -= dP_f * (dp_compact - dp_interp) * n_comp;
                     }
                 }
             }
@@ -314,6 +316,15 @@ double SIMPLESolver::solve_momentum(int comp, const Eigen::VectorXd& mf) {
                 pf = p_.values[o];
             }
             b[o] -= pf * face.normal[comp] * face.area;
+        }
+    }
+
+    // Temporal term: rho*V/dt * (phi - phi_old)
+    if (dt_ > 0.0 && U_.old_values.has_value()) {
+        for (int ci = 0; ci < n; ++ci) {
+            double coeff = rho_ * mesh_.cells[ci].volume / dt_;
+            aP_local[ci] += coeff;
+            b[ci] += coeff * U_.old_values.value()(ci, comp);
         }
     }
 
@@ -603,9 +614,13 @@ SolveResult SIMPLESolver::solve_transient_step(double dt) {
 
     std::vector<double> residuals;
 
+    // Store old velocity for temporal term
+    U_.store_old();
+
     // Momentum predictor: no under-relaxation for PISO
     double saved_alpha_u = alpha_u;
     alpha_u = 1.0;
+    dt_ = dt;
 
     Eigen::VectorXd mf = compute_face_mass_flux();
 
@@ -615,6 +630,7 @@ SolveResult SIMPLESolver::solve_transient_step(double dt) {
     }
 
     alpha_u = saved_alpha_u;
+    dt_ = 0.0;
 
     // PISO correction loop
     double res_p = 0.0;

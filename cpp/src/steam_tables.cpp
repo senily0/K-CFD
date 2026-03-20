@@ -158,7 +158,7 @@ static double g2o(double pi, double tau) {
     for (int i = 0; i < 9; ++i) s += r2o_n[i] * std::pow(tau, r2o_J[i]);
     return s;
 }
-static double g2o_pi(double /*pi*/, double /*tau*/) { return 1.0; }
+static double g2o_pi(double pi, double /*tau*/) { return 1.0 / pi; }
 static double g2o_tau(double /*pi*/, double tau) {
     double s = 0.0;
     for (int i = 0; i < 9; ++i)

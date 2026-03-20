@@ -25,6 +25,9 @@ void ScalarField::set_uniform(double val) {
 }
 
 void ScalarField::store_old() {
+    if (old_values.has_value()) {
+        old_old_values = old_values;
+    }
     old_values = values;
 }
 
@@ -65,6 +68,7 @@ ScalarField ScalarField::copy() const {
         sf.boundary_values[bname] = bvals;
     }
     sf.old_values = old_values;
+    sf.old_old_values = old_old_values;
     return sf;
 }
 
@@ -98,6 +102,9 @@ void VectorField::set_uniform(const Eigen::VectorXd& val) {
 }
 
 void VectorField::store_old() {
+    if (old_values.has_value()) {
+        old_old_values = old_values;
+    }
     old_values = values;
 }
 
@@ -124,6 +131,7 @@ VectorField VectorField::copy() const {
         vf.boundary_values[bname] = bvals;
     }
     vf.old_values = old_values;
+    vf.old_old_values = old_old_values;
     return vf;
 }
 

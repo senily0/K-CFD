@@ -4,6 +4,7 @@
 #include <map>
 #include <set>
 #include <numeric>
+#include <unordered_map>
 
 namespace twofluid {
 
@@ -314,15 +315,61 @@ ScalarField AMRMesh::transfer_field_to_children(
     ScalarField new_field(active_mesh, field.name());
     auto active_ids = get_active_cells();
 
+    // Build map from AMR cell id -> old active index (for cells that were
+    // active before this refinement, i.e. cells with index < field.values.size())
+    // We need to find the parent's old active index to get its value.
+    // The old active cells had contiguous indices 0..field.values.size()-1
+    // corresponding to leaf cells in the pre-refinement tree.
+    // Build a reverse map: amr cell_id -> old active index.
+    std::vector<int> old_active = get_active_cells();  // current active (post-refinement)
+    // Rebuild old active set: cells that were leaves before refinement are those
+    // whose index in amr_cells_ < field.values.size() and were leaves at that time.
+    // Simpler: parent ids were active cells, so map amr cell_id -> old field index
+    // by scanning amr_cells_ for all cells that are NOT leaves now but whose
+    // children are. These were the parents. For piecewise-constant transfer,
+    // each child inherits its parent's value.
+    std::unordered_map<int, int> amr_id_to_old_idx;
+    // Walk all amr_cells_; those that are leaves AND had index < field.values.size()
+    // were active before. Cells that are now parents (not leaves) were also active before
+    // if their index < field.values.size().
+    // We approximate: the old active cells were the first field.values.size() indices
+    // that were leaves at the previous step. Since leaf detection is dynamic, use
+    // the fact that any cell with id < field.values.size() that is NOT a leaf now
+    // was a parent cell that got refined.
+    int old_n = static_cast<int>(field.values.size());
+    // Map: for old active cells (indices 0..old_n-1), record their amr cell_id.
+    // The old active cells were exactly those returned by get_active_cells() before
+    // refinement. We don't have that list anymore, but we can reconstruct:
+    // cells whose amr id < amr_cells_.size() and that were leaves then.
+    // Conservative approach: assign consecutive old indices to non-leaf cells
+    // that have id within old_n range (they were refined, so they were active).
+    // Also assign to cells that are still leaves with id < old_n.
+    {
+        int idx = 0;
+        for (int cid = 0; cid < static_cast<int>(amr_cells_.size()) && idx < old_n; ++cid) {
+            // This cell was active (a leaf) before refinement if:
+            // - it is now a non-leaf (got refined, so it was a leaf before), OR
+            // - it is still a leaf (unchanged)
+            // We include it in old active list if it fits within old_n.
+            amr_id_to_old_idx[cid] = idx++;
+        }
+    }
+
     for (int i = 0; i < static_cast<int>(active_ids.size()); ++i) {
-        if (i < static_cast<int>(field.values.size())) {
-            new_field.values(i) = field.values(
-                std::min(i, static_cast<int>(field.values.size()) - 1));
+        int ci = active_ids[i];
+        // Check if this cell itself was active before (its amr id maps to old index)
+        auto it = amr_id_to_old_idx.find(ci);
+        if (it != amr_id_to_old_idx.end() && it->second < old_n) {
+            new_field.values(i) = field.values(it->second);
         } else {
-            // Inherit from parent
-            int ci = active_ids[i];
-            if (ci < static_cast<int>(amr_cells_.size()) &&
-                amr_cells_[ci].parent >= 0) {
+            // New child cell: find parent's old index
+            int parent_id = (ci < static_cast<int>(amr_cells_.size()))
+                            ? amr_cells_[ci].parent : -1;
+            auto pit = amr_id_to_old_idx.find(parent_id);
+            if (pit != amr_id_to_old_idx.end() && pit->second < old_n) {
+                new_field.values(i) = field.values(pit->second);
+            } else {
+                // Fallback: global mean
                 new_field.values(i) = field.values.mean();
             }
         }

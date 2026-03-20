@@ -185,6 +185,15 @@ Eigen::VectorXd grace_drag(const Eigen::VectorXd& alpha_g, double rho_l, double 
     else
         J = 3.42 * std::pow(std::max(H, 1e-15), 0.441);
 
+    // Terminal velocity from J (Grace method)
+    // U_T = mu_l / (rho_l * d_b) * M^(-0.149) * (J - 0.857)
+    double M_pow = std::pow(std::max(Mo, 1e-300), -0.149);
+    double U_T = mu_l / std::max(rho_l * d_b, 1e-30) * M_pow * std::max(J - 0.857, 1e-15);
+
+    // C_D from terminal velocity balance: C_D = 4/3 * g * d_b * (rho_l - rho_g) / (rho_l * U_T^2)
+    double C_D_grace = 4.0 / 3.0 * g * d_b * (rho_l - rho_g)
+                       / std::max(rho_l * U_T * U_T, 1e-30);
+
     Eigen::VectorXd K_drag(n);
 #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
@@ -194,14 +203,8 @@ Eigen::VectorXd grace_drag(const Eigen::VectorXd& alpha_g, double rho_l, double 
             mag_sq += diff * diff;
         }
         double u_rel = std::max(std::sqrt(mag_sq), 1e-15);
-        double Re_p = std::max(rho_l * u_rel * d_b / std::max(mu_l, 1e-15), 1e-15);
 
-        double C_D_stokes = 24.0 / Re_p * (1.0 + 0.15 * std::pow(Re_p, 0.687));
-        double C_D_eo = 8.0 / 3.0 * Eo / std::max(Eo + 4.0, 1e-15);
-        (void)J; // J used for shape regime identification; C_D uses max of both limits
-        double C_D = std::max(C_D_stokes, C_D_eo);
-
-        K_drag[i] = 0.75 * C_D * alpha_g[i] * rho_l * u_rel / std::max(d_b, 1e-15);
+        K_drag[i] = 0.75 * C_D_grace * alpha_g[i] * rho_l * u_rel / std::max(d_b, 1e-15);
     }
     return K_drag;
 }
@@ -234,8 +237,7 @@ Eigen::VectorXd tomiyama_drag(const Eigen::VectorXd& alpha_g, double rho_l, doub
         double Re_p = std::max(rho_l * u_rel * d_b / std::max(mu_l, 1e-15), 1e-15);
 
         double C_D_stokes  = 24.0 * (1.0 + 0.15 * std::pow(Re_p, 0.687)) / Re_p;
-        double C_D_viscous = 72.0 / Re_p;
-        double C_D = std::max(std::min(C_D_stokes, C_D_viscous), C_D_eo_limit);
+        double C_D = std::max(C_D_stokes, C_D_eo_limit);
 
         K_drag[i] = 0.75 * C_D * alpha_g[i] * rho_l * u_rel / std::max(d_b, 1e-15);
     }

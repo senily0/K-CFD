@@ -2,6 +2,8 @@
 #include "twofluid/gradient.hpp"
 #include "twofluid/linear_solver.hpp"
 #include "twofluid/interpolation.hpp"
+#include "twofluid/surface_tension.hpp"
+#include "twofluid/steam_tables.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -285,6 +287,27 @@ double TwoFluidSolver::simple_iteration() {
     int ndim = mesh_.ndim;
     double max_res = 1e10;
 
+    // Update properties from IAPWS-IF97 if enabled
+    if (property_model == "iapws97") {
+        double T_avg_l = T_l_.mean();
+        double T_avg_g = T_g_.mean();
+        auto liq = IAPWS_IF97::liquid(T_avg_l, system_pressure);
+        auto vap = IAPWS_IF97::vapor(T_avg_g, system_pressure);
+        rho_l = liq.rho;
+        mu_l  = liq.mu;
+        cp_l  = liq.cp;
+        k_l   = liq.k;
+        rho_g = vap.rho;
+        mu_g  = vap.mu;
+        cp_g  = vap.cp;
+        k_g   = vap.k;
+        h_fg  = IAPWS_IF97::h_fg(system_pressure);
+        T_sat = IAPWS_IF97::T_sat(system_pressure);
+        if (sigma_surface <= 0.0) {
+            sigma_surface = IAPWS_IF97::surface_tension(T_avg_l);
+        }
+    }
+
     for (int inner = 0; inner < n_inner; ++inner) {
         // Update zero-gradient boundaries
         update_zero_gradient_boundaries();
@@ -298,12 +321,21 @@ double TwoFluidSolver::simple_iteration() {
         double res_alpha = 0.0;
 
         if (solve_momentum) {
-            // Drag coefficient
-            Eigen::VectorXd K_drag = drag_coefficient_implicit(
-                alpha_g_.values, rho_l,
-                U_g_.values, U_l_.values,
-                d_b, mu_l
-            );
+            // Drag model selection
+            Eigen::VectorXd K_drag;
+            if (drag_model == "grace") {
+                K_drag = grace_drag(alpha_g_.values, rho_l, rho_g,
+                                   U_g_.values, U_l_.values, d_b, mu_l, sigma_surface);
+            } else if (drag_model == "tomiyama") {
+                K_drag = tomiyama_drag(alpha_g_.values, rho_l, rho_g,
+                                      U_g_.values, U_l_.values, d_b, mu_l, sigma_surface);
+            } else if (drag_model == "ishii_zuber") {
+                K_drag = ishii_zuber_drag(alpha_g_.values, rho_l,
+                                          U_g_.values, U_l_.values, d_b, mu_l);
+            } else {
+                K_drag = drag_coefficient_implicit(alpha_g_.values, rho_l,
+                                                   U_g_.values, U_l_.values, d_b, mu_l);
+            }
 
             // Momentum equations (each phase, each component)
             for (int comp = 0; comp < ndim; ++comp) {
@@ -416,6 +448,9 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     if (U.old_values.has_value()) {
         phi.old_values = U.old_values.value().col(comp);
     }
+    if (U.old_old_values.has_value()) {
+        phi.old_old_values = U.old_old_values.value().col(comp);
+    }
 
     // Diffusion: alpha * mu
     ScalarField gamma(mesh_, "gamma");
@@ -430,7 +465,11 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
         gamma.values += alpha.values.cwiseProduct(mu_BIT);
     }
 
-    diffusion_operator(mesh_, gamma, system);
+    if (n_nonorth_correctors > 0) {
+        diffusion_operator_corrected(mesh_, gamma, phi, system, n_nonorth_correctors);
+    } else {
+        diffusion_operator(mesh_, gamma, system);
+    }
 
     // Convection: alpha * mass_flux
     // Get alpha at face owner for upwind
@@ -452,7 +491,17 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     }
 
     // Temporal term
-    if (phi.old_values.has_value()) {
+    if (time_scheme == "bdf2" && phi.old_values.has_value() && phi.old_old_values.has_value()) {
+        // BDF2: (3/(2*dt)) * rho*alpha*V * phi = (4/(2*dt)) * rho*alpha*V * phi^n
+        //                                       - (1/(2*dt)) * rho*alpha*V * phi^{n-1}
+        for (int ci = 0; ci < n; ++ci) {
+            double vol = mesh_.cells[ci].volume;
+            double coeff = alpha.values[ci] * rho * vol;
+            system.add_diagonal(ci, 1.5 * coeff / dt);
+            system.add_source(ci, (2.0 * coeff / dt) * phi.old_values.value()[ci]
+                                - (0.5 * coeff / dt) * phi.old_old_values.value()[ci]);
+        }
+    } else if (phi.old_values.has_value()) {
         for (int ci = 0; ci < n; ++ci) {
             double vol = mesh_.cells[ci].volume;
             double coeff = alpha.values[ci] * rho * vol / dt;
@@ -461,22 +510,39 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
         }
     }
 
-    // Pressure gradient: -alpha * p_f * n_comp * A_f
+    // Pressure gradient: -alpha * V * (grad_p)_comp
+    // Using face-based gradient: (p_N - p_O) contribution per face
     for (int fid = 0; fid < mesh_.n_faces; ++fid) {
         const Face& face = mesh_.faces[fid];
         int o = face.owner;
-        double p_f;
-        if (face.neighbour >= 0) {
-            p_f = 0.5 * (p_.values[o] + p_.values[face.neighbour]);
-        } else {
-            p_f = p_.values[o];
-        }
-        double force = -alpha.values[o] * p_f * face.normal[comp] * face.area;
-        system.add_source(o, force);
+
         if (face.neighbour >= 0) {
             int nb = face.neighbour;
-            double force_nb = -alpha.values[nb] * p_f * face.normal[comp] * face.area;
-            system.add_source(nb, -force_nb);
+            double dp = p_.values[nb] - p_.values[o];
+            double al_o = alpha.values[o];
+            double al_nb = alpha.values[nb];
+
+            // Pressure gradient contribution to owner and neighbour
+            double force_o = -al_o * dp * face.normal[comp] * face.area;
+            double force_nb = al_nb * dp * face.normal[comp] * face.area;
+            system.add_source(o, force_o);
+            system.add_source(nb, force_nb);
+        } else {
+            // Boundary: check for Dirichlet pressure BC, else zero-gradient (dp=0)
+            double p_b = p_.values[o];  // zero-gradient default
+            auto cache_it = face_bc_cache_.find(fid);
+            if (cache_it != face_bc_cache_.end()) {
+                auto& [bname, li] = cache_it->second;
+                if (bc_p_.count(bname) && bc_p_.at(bname).type == "dirichlet") {
+                    auto bv_it = p_.boundary_values.find(bname);
+                    if (bv_it != p_.boundary_values.end() &&
+                        li < static_cast<int>(bv_it->second.size())) {
+                        p_b = bv_it->second[li];
+                    }
+                }
+            }
+            double dp = p_b - p_.values[o];
+            system.add_source(o, -alpha.values[o] * dp * face.normal[comp] * face.area);
         }
     }
 
@@ -491,6 +557,58 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     for (int ci = 0; ci < n; ++ci) {
         double vol = mesh_.cells[ci].volume;
         system.add_source(ci, alpha.values[ci] * rho * g[comp] * vol);
+    }
+
+    // Additional interfacial forces (liquid phase only)
+    if (is_liquid) {
+        if (enable_lift_force && sigma_surface > 0.0) {
+            // Compute curl of liquid velocity (2D: curl_z = dv/dx - du/dy)
+            ScalarField ux(mesh_, "ux");
+            ux.values = U_l_.values.col(0);
+            for (auto& [bname, bv] : U_l_.boundary_values)
+                ux.boundary_values[bname] = bv.col(0);
+
+            ScalarField uy(mesh_, "uy");
+            uy.values = U_l_.values.col(1);
+            for (auto& [bname, bv] : U_l_.boundary_values)
+                uy.boundary_values[bname] = bv.col(1);
+
+            auto grad_ux = green_gauss_gradient(ux);
+            auto grad_uy = green_gauss_gradient(uy);
+
+            Eigen::MatrixXd curl_Ul = Eigen::MatrixXd::Zero(n, ndim);
+            if (ndim == 2) {
+                for (int ci = 0; ci < n; ++ci) {
+                    curl_Ul(ci, 0) = grad_uy(ci, 0) - grad_ux(ci, 1);
+                }
+            }
+
+            auto F_lift = lift_force_tomiyama(
+                alpha_g_.values, rho_l, rho_g,
+                U_g_.values, U_l_.values, d_b, mu_l, sigma_surface, curl_Ul);
+            for (int ci = 0; ci < n; ++ci) {
+                system.add_source(ci, F_lift(ci) * mesh_.cells[ci].volume);
+            }
+        }
+
+        if (enable_turbulent_dispersion) {
+            auto grad_alpha = green_gauss_gradient(alpha_g_);
+            Eigen::VectorXd mu_t = sato_bubble_induced_turbulence(
+                alpha_g_.values, rho_l, U_g_.values, U_l_.values, d_b);
+            auto F_td = turbulent_dispersion_burns(alpha_g_.values, mu_t, grad_alpha, C_td);
+            for (int ci = 0; ci < n; ++ci) {
+                system.add_source(ci, F_td(ci) * mesh_.cells[ci].volume);
+            }
+        }
+    }
+
+    // Surface tension (CSF)
+    if (sigma_surface > 0.0) {
+        CSFSurfaceTension csf(mesh_, sigma_surface);
+        auto F_sigma = csf.compute_force(alpha_g_);
+        for (int ci = 0; ci < n; ++ci) {
+            system.add_source(ci, F_sigma(ci, comp) * mesh_.cells[ci].volume);
+        }
     }
 
     // Boundary conditions
@@ -673,7 +791,11 @@ double TwoFluidSolver::solve_volume_fraction(const Eigen::VectorXd& mf_g,
     convection_operator_upwind(mesh_, mf_g, system);
 
     // Temporal
-    if (alpha_g_.old_values.has_value()) {
+    if (time_scheme == "bdf2" && alpha_g_.old_values.has_value() && alpha_g_.old_old_values.has_value()) {
+        temporal_operator_bdf2(mesh_, rho_g, dt,
+                               alpha_g_.old_values.value(),
+                               alpha_g_.old_old_values.value(), system);
+    } else if (alpha_g_.old_values.has_value()) {
         temporal_operator(mesh_, rho_g, dt, alpha_g_.old_values.value(), system);
     }
 
@@ -773,7 +895,11 @@ double TwoFluidSolver::solve_phase_energy(
     // Diffusion: alpha * k_cond
     ScalarField gamma(mesh_, "gamma_T_" + phase);
     gamma.values = alpha.values * k_cond;
-    diffusion_operator(mesh_, gamma, system);
+    if (n_nonorth_correctors > 0) {
+        diffusion_operator_corrected(mesh_, gamma, T, system, n_nonorth_correctors);
+    } else {
+        diffusion_operator(mesh_, gamma, system);
+    }
 
     // Convection: alpha * cp * mass_flux (upwind alpha interpolation)
     Eigen::VectorXd alpha_cp_mf(mesh_.n_faces);
@@ -791,7 +917,15 @@ double TwoFluidSolver::solve_phase_energy(
     convection_operator_upwind(mesh_, alpha_cp_mf, system);
 
     // Temporal
-    if (T.old_values.has_value()) {
+    if (time_scheme == "bdf2" && T.old_values.has_value() && T.old_old_values.has_value()) {
+        for (int ci = 0; ci < n; ++ci) {
+            double vol = mesh_.cells[ci].volume;
+            double coeff = alpha.values[ci] * rho * cp * vol;
+            system.add_diagonal(ci, 1.5 * coeff / dt_local);
+            system.add_source(ci, (2.0 * coeff / dt_local) * T.old_values.value()[ci]
+                                - (0.5 * coeff / dt_local) * T.old_old_values.value()[ci]);
+        }
+    } else if (T.old_values.has_value()) {
         for (int ci = 0; ci < n; ++ci) {
             double vol = mesh_.cells[ci].volume;
             double coeff = alpha.values[ci] * rho * cp * vol / dt_local;

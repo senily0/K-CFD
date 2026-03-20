@@ -52,6 +52,26 @@ public:
     std::string convection_scheme = "muscl";
     std::string muscl_limiter = "van_leer";
 
+    // Drag model selection: "schiller_naumann", "grace", "tomiyama", "ishii_zuber"
+    std::string drag_model = "schiller_naumann";
+    double sigma_surface = 0.0;  // surface tension coefficient [N/m] (0 = disabled)
+
+    // Interfacial forces (enable flags)
+    bool enable_lift_force = false;
+    bool enable_wall_lubrication = false;
+    bool enable_turbulent_dispersion = false;
+    double C_td = 1.0;  // turbulent dispersion coefficient
+
+    // Property model: "constant" or "iapws97"
+    std::string property_model = "constant";
+    double system_pressure = 101325.0;  // [Pa] for IAPWS property evaluation
+
+    // Non-orthogonal correction
+    int n_nonorth_correctors = 0;  // 0 = disabled
+
+    // Time scheme: "euler" or "bdf2"
+    std::string time_scheme = "euler";
+
     // Initialize
     void initialize(double alpha_g_init = 0.05);
 

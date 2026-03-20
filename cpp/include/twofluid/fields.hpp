@@ -16,6 +16,7 @@ public:
 
     Eigen::VectorXd values;
     std::optional<Eigen::VectorXd> old_values;
+    std::optional<Eigen::VectorXd> old_old_values;  // phi^{n-2} for BDF2
     std::unordered_map<std::string, Eigen::VectorXd> boundary_values;
 
     /// Set all cell and boundary values to a uniform value.
@@ -55,6 +56,7 @@ public:
 
     Eigen::MatrixXd values;     // (n_cells, ndim)
     std::optional<Eigen::MatrixXd> old_values;
+    std::optional<Eigen::MatrixXd> old_old_values;  // U^{n-2} for BDF2
     std::unordered_map<std::string, Eigen::MatrixXd> boundary_values;
 
     /// Set all cell and boundary values to a uniform vector.

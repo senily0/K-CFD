@@ -67,6 +67,12 @@ private:
     // Per-component aP coefficients for pressure correction
     std::unordered_map<int, Eigen::VectorXd> aP_;
 
+    // Transient time step (>0 adds temporal term to momentum equation)
+    double dt_ = 0.0;
+
+    // Cell-center pressure gradient for Rhie-Chow interpolation
+    Eigen::MatrixXd grad_p_;
+
     // BC storage
     struct BCInfo { std::string type; };
     std::unordered_map<std::string, BCInfo> bc_u_, bc_p_;
