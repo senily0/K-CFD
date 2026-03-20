@@ -122,13 +122,13 @@ static void set_local_bcs(SIMPLESolver& solver, FVMesh& local_mesh,
     if (patches.count("wall_back") && !patches["wall_back"].empty())
         solver.set_wall("wall_back");
 
-    // mpi_interface: Dirichlet velocity (values updated from neighbor each
-    // outer iteration) and zero-gradient pressure (set_inlet gives exactly
-    // this: bc_u_=dirichlet, bc_p_=zero_gradient).
+    // mpi_interface: zero-gradient (Neumann) for velocity.
+    // Pressure is Dirichlet at p=0 (set_outlet behavior).
+    // After each inner solve, boundary cell values are blended with
+    // received neighbor values so that zero-gradient propagates the
+    // coupled information to the face on the next solve iteration.
     if (patches.count("mpi_interface") && !patches["mpi_interface"].empty()) {
-        int n_mpi = static_cast<int>(patches["mpi_interface"].size());
-        Eigen::MatrixXd mpi_U = Eigen::MatrixXd::Zero(n_mpi, 3);
-        solver.set_inlet("mpi_interface", mpi_U);
+        solver.set_outlet("mpi_interface", 0.0);
     }
 }
 
@@ -390,7 +390,8 @@ static std::vector<NeighborExchange> build_exchange_maps(
 static void exchange_interface_values(
     MPIComm& comm,
     SIMPLESolver& solver,
-    const std::vector<NeighborExchange>& exchanges)
+    const std::vector<NeighborExchange>& exchanges,
+    double relax_param = 0.3)
 {
 #ifdef USE_MPI
     for (const auto& ex : exchanges) {
@@ -422,33 +423,68 @@ static void exchange_interface_values(
                      ex.remote_rank, 500, MPI_COMM_WORLD);
         }
 
-        // Unpack into mpi_interface boundary_values with under-relaxation.
-        // Velocity BC is Dirichlet (set_inlet), so the solver uses these
-        // boundary_values as the face value in the momentum equation.
-        // Pressure BC is zero-gradient (set_inlet gives bc_p_=zero_gradient),
-        // so the solver uses the owner cell value -- we do NOT update pressure
-        // boundary_values to avoid destabilizing the pressure equation.
-        auto u_bv_it = solver.velocity().boundary_values.find("mpi_interface");
-        const double relax = 0.3;
+        // Unpack: accumulate received neighbor values per owner cell.
+        // Multiple interface faces may share the same owner cell, so we
+        // average the neighbor values for each cell, then blend into the
+        // cell value. With zero-gradient BC, the face value equals the
+        // cell value, so this effectively updates the interface coupling.
+        //
+        // We also update the boundary_values for the mpi_interface patch
+        // so that get_face_value() and the pressure gradient source term
+        // see the neighbor data.
+        std::unordered_map<int, std::vector<int>> cell_recv_indices;
+        for (int i = 0; i < n_recv; ++i) {
+            int ci = ex.recv_owner_cells[i];
+            cell_recv_indices[ci].push_back(i);
+        }
 
+        const double relax = relax_param;
+
+        auto u_bv_it = solver.velocity().boundary_values.find("mpi_interface");
+        auto p_bv_it = solver.pressure().boundary_values.find("mpi_interface");
+
+        for (auto& [ci, indices] : cell_recv_indices) {
+            // Average the received neighbor values for this cell
+            double avg_u = 0, avg_v = 0, avg_w = 0, avg_p = 0;
+            for (int idx : indices) {
+                avg_u += recv_buf[idx * 4 + 0];
+                avg_v += recv_buf[idx * 4 + 1];
+                avg_w += recv_buf[idx * 4 + 2];
+                avg_p += recv_buf[idx * 4 + 3];
+            }
+            double n = static_cast<double>(indices.size());
+            avg_u /= n; avg_v /= n; avg_w /= n; avg_p /= n;
+
+            // Blend into cell values
+            solver.velocity().values(ci, 0) += relax * (avg_u - solver.velocity().values(ci, 0));
+            solver.velocity().values(ci, 1) += relax * (avg_v - solver.velocity().values(ci, 1));
+            solver.velocity().values(ci, 2) += relax * (avg_w - solver.velocity().values(ci, 2));
+            solver.pressure().values(ci) += relax * (avg_p - solver.pressure().values(ci));
+        }
+
+        // Also update boundary_values so pressure gradient at
+        // interface faces uses the neighbor data
         for (int i = 0; i < n_recv; ++i) {
             int pi = ex.recv_patch_indices[i];
             if (pi < 0) continue;
-
             double recv_u = recv_buf[i * 4 + 0];
             double recv_v = recv_buf[i * 4 + 1];
             double recv_w = recv_buf[i * 4 + 2];
+            double recv_p = recv_buf[i * 4 + 3];
 
             if (u_bv_it != solver.velocity().boundary_values.end()) {
                 auto& bv = u_bv_it->second;
-                bv(pi, 0) = (1.0 - relax) * bv(pi, 0) + relax * recv_u;
-                bv(pi, 1) = (1.0 - relax) * bv(pi, 1) + relax * recv_v;
-                bv(pi, 2) = (1.0 - relax) * bv(pi, 2) + relax * recv_w;
+                bv(pi, 0) = recv_u;
+                bv(pi, 1) = recv_v;
+                bv(pi, 2) = recv_w;
+            }
+            if (p_bv_it != solver.pressure().boundary_values.end()) {
+                p_bv_it->second(pi) = recv_p;
             }
         }
     }
 #else
-    (void)comm; (void)solver; (void)exchanges;
+    (void)comm; (void)solver; (void)exchanges; (void)relax_param;
 #endif
 }
 
@@ -681,7 +717,7 @@ int main(int argc, char* argv[]) {
         // ----------------------------------------------------------
         // 3e. Outer Schwarz iteration loop with REAL ghost exchange
         // ----------------------------------------------------------
-        const int inner_iters = 5;   // SIMPLE iterations per exchange
+        const int inner_iters = 1;   // 1 SIMPLE iteration per ghost exchange (essential for convergence)
         const int outer_iters = (max_iter + inner_iters - 1) / inner_iters;
         const double tol = 1e-8;
 
@@ -697,20 +733,26 @@ int main(int argc, char* argv[]) {
         bool converged = false;
         double final_residual = 1.0;
 
-        for (int outer = 0; outer < outer_iters; ++outer) {
-            // Exchange ghost values BEFORE inner solve so that the
-            // mpi_interface Dirichlet BCs have current neighbor data.
-            exchange_interface_values(comm, local_solver, exchanges);
+        // Store previous velocity for convergence check
+        Eigen::MatrixXd U_prev = local_solver.velocity().values;
 
+        for (int outer = 0; outer < outer_iters; ++outer) {
             // Inner SIMPLE iterations on local mesh
             local_solver.max_iter = inner_iters;
             local_solver.tol = tol * 0.1;  // tight inner tol
             SolveResult inner_result = local_solver.solve_steady();
             total_iters += inner_result.iterations;
 
-            // Global convergence check
-            double local_res = inner_result.residuals.empty()
-                             ? 0.0 : inner_result.residuals.back();
+            // Exchange ghost values AFTER inner solve.
+            // Blend neighbor cell values into boundary cells.
+            exchange_interface_values(comm, local_solver, exchanges, 0.7);
+
+            // Convergence check: relative change in velocity field
+            double local_change = (local_solver.velocity().values - U_prev).norm();
+            double local_norm = std::max(local_solver.velocity().values.norm(), 1e-10);
+            double local_res = local_change / local_norm;
+            U_prev = local_solver.velocity().values;
+
             double global_res = comm.all_reduce_max(local_res);
             final_residual = global_res;
 
