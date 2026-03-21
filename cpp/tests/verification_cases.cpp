@@ -17,6 +17,7 @@
  * 16. Preconditioner comparison                        -- FIXED: high-Pe convection-diffusion benchmark
  * 17. Adaptive time stepping                           -- FIXED: varying velocity field
  * 18. OpenMP scaling test                              -- FIXED: large SpMV benchmark at scale
+ * 19. IAPWS-IF97 property verification + heated channel -- NEW: steam table validation + solver integration
  */
 
 #include <algorithm>
@@ -52,6 +53,7 @@
 #include "twofluid/amr.hpp"
 #include "twofluid/vtk_writer.hpp"
 #include "twofluid/gpu_solver.hpp"
+#include "twofluid/steam_tables.hpp"
 
 using namespace twofluid;
 
@@ -1534,6 +1536,229 @@ void case18_openmp_scaling() {
 #endif
 }
 
+// ========== Case 19: IAPWS Property Verification + Heated Channel ==========
+void case19_iapws_properties() {
+    std::cout << "\n==== Case 19: IAPWS-IF97 property verification + heated channel ====\n";
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    // ---- Part A: Verify IAPWS-IF97 against known steam table values ----
+    std::cout << "  Part A: IAPWS-IF97 property verification\n";
+
+    // --- Condition 1: 1 atm (101325 Pa), 100 C ---
+    double p_1atm = 101325.0;
+    double T_sat_1atm = IAPWS_IF97::T_sat(p_1atm);
+    auto liq_100C = IAPWS_IF97::liquid(373.15, p_1atm);
+    auto vap_100C = IAPWS_IF97::vapor(373.15, p_1atm);
+    double h_fg_1atm = IAPWS_IF97::h_fg(p_1atm);
+    double sigma_1atm = IAPWS_IF97::surface_tension(373.15);
+
+    // Known values at 1 atm, 100 C:
+    // T_sat ~ 373.15 K (100 C)
+    // rho_l ~ 958 kg/m3
+    // rho_g ~ 0.59 kg/m3
+    // mu_l ~ 2.82e-4 Pa.s
+    // cp_l ~ 4216 J/(kg.K)
+    // h_fg ~ 2257 kJ/kg
+    // sigma ~ 0.059 N/m
+
+    double known_T_sat_1atm = 373.15;
+    double known_rho_l_1atm = 958.0;
+    double known_rho_g_1atm = 0.59;
+    double known_mu_l_1atm = 2.82e-4;
+    double known_cp_l_1atm = 4216.0;
+    double known_h_fg_1atm = 2257.0e3;
+    double known_sigma_1atm = 0.059;
+
+    std::cout << "    1 atm conditions:\n";
+    std::cout << "      T_sat: computed=" << T_sat_1atm << " K, known=" << known_T_sat_1atm << " K\n";
+    std::cout << "      rho_l: computed=" << liq_100C.rho << ", known=" << known_rho_l_1atm << " kg/m3\n";
+    std::cout << "      rho_g: computed=" << vap_100C.rho << ", known=" << known_rho_g_1atm << " kg/m3\n";
+    std::cout << "      mu_l:  computed=" << liq_100C.mu << ", known=" << known_mu_l_1atm << " Pa.s\n";
+    std::cout << "      cp_l:  computed=" << liq_100C.cp << ", known=" << known_cp_l_1atm << " J/(kg.K)\n";
+    std::cout << "      h_fg:  computed=" << h_fg_1atm << ", known=" << known_h_fg_1atm << " J/kg\n";
+    std::cout << "      sigma: computed=" << sigma_1atm << ", known=" << known_sigma_1atm << " N/m\n";
+
+    // Check each property within 10% of known value
+    auto rel_err = [](double computed, double known) -> double {
+        return std::abs(computed - known) / std::max(std::abs(known), 1e-30);
+    };
+
+    bool T_sat_1atm_ok = rel_err(T_sat_1atm, known_T_sat_1atm) < 0.10;
+    bool rho_l_1atm_ok = rel_err(liq_100C.rho, known_rho_l_1atm) < 0.10;
+    bool rho_g_1atm_ok = rel_err(vap_100C.rho, known_rho_g_1atm) < 0.10;
+    bool mu_l_1atm_ok  = rel_err(liq_100C.mu, known_mu_l_1atm) < 0.10;
+    bool cp_l_1atm_ok  = rel_err(liq_100C.cp, known_cp_l_1atm) < 0.10;
+    bool h_fg_1atm_ok  = rel_err(h_fg_1atm, known_h_fg_1atm) < 0.10;
+    bool sigma_1atm_ok = rel_err(sigma_1atm, known_sigma_1atm) < 0.10;
+
+    bool part_a1_ok = T_sat_1atm_ok && rho_l_1atm_ok && rho_g_1atm_ok
+                   && mu_l_1atm_ok && cp_l_1atm_ok && h_fg_1atm_ok && sigma_1atm_ok;
+
+    // --- Condition 2: 15.5 MPa (PWR conditions) ---
+    double p_pwr = 15.5e6;
+    double T_sat_pwr = IAPWS_IF97::T_sat(p_pwr);
+    auto liq_pwr = IAPWS_IF97::liquid(T_sat_pwr - 10.0, p_pwr);  // 10K subcooled
+    auto vap_pwr = IAPWS_IF97::vapor(T_sat_pwr + 10.0, p_pwr);   // 10K superheated
+    double h_fg_pwr = IAPWS_IF97::h_fg(p_pwr);
+
+    // Known PWR values:
+    // T_sat ~ 618 K (345 C)
+    // rho_l ~ 594 kg/m3
+    // rho_g ~ 102 kg/m3
+    // h_fg ~ 931 kJ/kg
+
+    double known_T_sat_pwr = 618.0;
+    double known_rho_l_pwr = 594.0;
+    double known_rho_g_pwr = 102.0;
+    double known_h_fg_pwr = 931.0e3;
+
+    std::cout << "    PWR conditions (15.5 MPa):\n";
+    std::cout << "      T_sat: computed=" << T_sat_pwr << " K, known=" << known_T_sat_pwr << " K\n";
+    std::cout << "      rho_l: computed=" << liq_pwr.rho << ", known=" << known_rho_l_pwr << " kg/m3\n";
+    std::cout << "      rho_g: computed=" << vap_pwr.rho << ", known=" << known_rho_g_pwr << " kg/m3\n";
+    std::cout << "      h_fg:  computed=" << h_fg_pwr << ", known=" << known_h_fg_pwr << " J/kg\n";
+
+    bool T_sat_pwr_ok = rel_err(T_sat_pwr, known_T_sat_pwr) < 0.10;
+    bool rho_l_pwr_ok = rel_err(liq_pwr.rho, known_rho_l_pwr) < 0.10;
+    bool rho_g_pwr_ok = rel_err(vap_pwr.rho, known_rho_g_pwr) < 0.10;
+    bool h_fg_pwr_ok  = rel_err(h_fg_pwr, known_h_fg_pwr) < 0.10;
+
+    bool part_a2_ok = T_sat_pwr_ok && rho_l_pwr_ok && rho_g_pwr_ok && h_fg_pwr_ok;
+
+    bool part_a_passed = part_a1_ok && part_a2_ok;
+
+    std::string part_a_fail_reason;
+    if (!T_sat_1atm_ok) part_a_fail_reason = "T_sat(1atm) err=" + std::to_string(rel_err(T_sat_1atm, known_T_sat_1atm));
+    else if (!rho_l_1atm_ok) part_a_fail_reason = "rho_l(1atm) err=" + std::to_string(rel_err(liq_100C.rho, known_rho_l_1atm));
+    else if (!rho_g_1atm_ok) part_a_fail_reason = "rho_g(1atm) err=" + std::to_string(rel_err(vap_100C.rho, known_rho_g_1atm));
+    else if (!mu_l_1atm_ok) part_a_fail_reason = "mu_l(1atm) err=" + std::to_string(rel_err(liq_100C.mu, known_mu_l_1atm));
+    else if (!cp_l_1atm_ok) part_a_fail_reason = "cp_l(1atm) err=" + std::to_string(rel_err(liq_100C.cp, known_cp_l_1atm));
+    else if (!h_fg_1atm_ok) part_a_fail_reason = "h_fg(1atm) err=" + std::to_string(rel_err(h_fg_1atm, known_h_fg_1atm));
+    else if (!sigma_1atm_ok) part_a_fail_reason = "sigma(1atm) err=" + std::to_string(rel_err(sigma_1atm, known_sigma_1atm));
+    else if (!T_sat_pwr_ok) part_a_fail_reason = "T_sat(PWR) err=" + std::to_string(rel_err(T_sat_pwr, known_T_sat_pwr));
+    else if (!rho_l_pwr_ok) part_a_fail_reason = "rho_l(PWR) err=" + std::to_string(rel_err(liq_pwr.rho, known_rho_l_pwr));
+    else if (!rho_g_pwr_ok) part_a_fail_reason = "rho_g(PWR) err=" + std::to_string(rel_err(vap_pwr.rho, known_rho_g_pwr));
+    else if (!h_fg_pwr_ok) part_a_fail_reason = "h_fg(PWR) err=" + std::to_string(rel_err(h_fg_pwr, known_h_fg_pwr));
+
+    // ---- Part B: Heated channel with IAPWS properties ----
+    std::cout << "  Part B: Heated channel with IAPWS-IF97 properties\n";
+
+    auto mesh = generate_channel_mesh(0.5, 0.02, 20, 5);
+    int n = mesh.n_cells;
+    TwoFluidSolver tf(mesh);
+    tf.property_model = "iapws97";
+    tf.system_pressure = 15.5e6;
+    tf.solve_energy = true;
+    tf.solve_momentum = true;
+    tf.convection_scheme = "upwind";
+
+    // Solver parameters tuned for stability
+    tf.alpha_u = 0.3;
+    tf.alpha_p = 0.2;
+    tf.alpha_alpha = 0.3;
+    tf.alpha_T = 0.5;
+    tf.tol = 1e-3;
+    tf.max_outer_iter = 100;
+    tf.U_max = 5.0;
+    tf.T_min = 500.0;
+    tf.T_max = 700.0;
+
+    // Initialize with subcooled liquid at 600 K
+    tf.initialize(0.001);  // very small gas fraction
+    for (int ci = 0; ci < n; ++ci) {
+        tf.T_l_field().values[ci] = 600.0;  // subcooled inlet temperature
+        tf.T_g_field().values[ci] = T_sat_pwr;
+    }
+
+    // BCs: inlet on left at 600 K, outlet on right, walls top/bottom
+    Eigen::VectorXd U_in(2);
+    U_in << 0.5, 0.0;  // 0.5 m/s inlet velocity
+    tf.set_inlet_bc("inlet", 0.001, U_in, U_in, 600.0, T_sat_pwr);
+    tf.set_outlet_bc("outlet", 0.0);
+    tf.set_wall_bc("wall_bottom", 1.0e5);  // 100 kW/m2 wall heat flux
+    tf.set_wall_bc("wall_top", 0.0);       // adiabatic top wall
+
+    // Run a short transient
+    auto result = tf.solve_transient(0.05, 0.001, 50);
+
+    // Post-processing: check that temperature increases along channel
+    // and density decreases (water gets lighter when heated)
+    bool has_nan = false;
+    for (int ci = 0; ci < n; ++ci) {
+        double val = tf.T_l_field().values(ci);
+        if (std::isnan(val) || std::isinf(val)) { has_nan = true; break; }
+    }
+
+    // Compute average temperature in inlet region (x < 0.1) and outlet region (x > 0.4)
+    double T_avg_inlet = 0.0, T_avg_outlet = 0.0;
+    int n_inlet_cells = 0, n_outlet_cells = 0;
+    for (int ci = 0; ci < n; ++ci) {
+        double x = mesh.cells[ci].center[0];
+        double T = tf.T_l_field().values[ci];
+        if (x < 0.1) {
+            T_avg_inlet += T;
+            n_inlet_cells++;
+        } else if (x > 0.4) {
+            T_avg_outlet += T;
+            n_outlet_cells++;
+        }
+    }
+    T_avg_inlet /= std::max(n_inlet_cells, 1);
+    T_avg_outlet /= std::max(n_outlet_cells, 1);
+
+    std::cout << "    T_avg_inlet=" << T_avg_inlet << " K, T_avg_outlet=" << T_avg_outlet << " K\n";
+    std::cout << "    NaN detected: " << (has_nan ? "yes" : "no") << "\n";
+
+    // Part B pass criteria:
+    // 1. No NaN/Inf in solution
+    // 2. Outlet temperature >= inlet temperature (heated channel)
+    //    (with wall heat flux, fluid must heat up)
+    bool no_nan = !has_nan;
+    bool T_increases = T_avg_outlet >= T_avg_inlet;
+
+    bool part_b_passed = no_nan && T_increases;
+
+    std::string part_b_fail_reason;
+    if (has_nan) {
+        part_b_fail_reason = "NaN/Inf in temperature field";
+    } else if (!T_increases) {
+        part_b_fail_reason = "T did not increase along channel: inlet=" + std::to_string(T_avg_inlet)
+                           + " outlet=" + std::to_string(T_avg_outlet);
+    }
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    // ---- Overall verdict ----
+    bool passed = part_a_passed && part_b_passed;
+
+    std::string reason;
+    if (!part_a_passed) {
+        reason = "Part A: IAPWS property mismatch: " + part_a_fail_reason;
+    } else if (!part_b_passed) {
+        reason = "Part B: Heated channel failed: " + part_b_fail_reason;
+    } else {
+        reason = "IAPWS properties match steam tables (<10%), heated channel T rises ("
+               + std::to_string(T_avg_inlet) + " -> " + std::to_string(T_avg_outlet) + " K)";
+    }
+    report_verdict(19, "IAPWS_Properties", passed, reason);
+
+    // Record all metrics
+    add_result(19, "IAPWS_Properties", passed, "T_sat_1atm", T_sat_1atm, ms);
+    add_result(19, "IAPWS_Properties", passed, "rho_l_1atm", liq_100C.rho, ms);
+    add_result(19, "IAPWS_Properties", passed, "rho_g_1atm", vap_100C.rho, ms);
+    add_result(19, "IAPWS_Properties", passed, "mu_l_1atm", liq_100C.mu, ms);
+    add_result(19, "IAPWS_Properties", passed, "cp_l_1atm", liq_100C.cp, ms);
+    add_result(19, "IAPWS_Properties", passed, "h_fg_1atm", h_fg_1atm, ms);
+    add_result(19, "IAPWS_Properties", passed, "sigma_1atm", sigma_1atm, ms);
+    add_result(19, "IAPWS_Properties", passed, "T_sat_pwr", T_sat_pwr, ms);
+    add_result(19, "IAPWS_Properties", passed, "rho_l_pwr", liq_pwr.rho, ms);
+    add_result(19, "IAPWS_Properties", passed, "rho_g_pwr", vap_pwr.rho, ms);
+    add_result(19, "IAPWS_Properties", passed, "h_fg_pwr", h_fg_pwr, ms);
+    add_result(19, "IAPWS_Properties", passed, "T_avg_inlet", T_avg_inlet, ms);
+    add_result(19, "IAPWS_Properties", passed, "T_avg_outlet", T_avg_outlet, ms);
+}
+
 // ========== Main ==========
 int main() {
     std::cout << "================================================================\n";
@@ -1553,6 +1778,7 @@ int main() {
     case16_preconditioner();
     case17_adaptive_dt();
     case18_openmp_scaling();
+    case19_iapws_properties();
 
     // Print results table
     std::cout << "\n================================================================\n";
