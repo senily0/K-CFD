@@ -1,0 +1,39 @@
+{
+    "case_name": "MPI Parallel Decomposition",
+    "case_id": "08",
+    "description": "Parallel domain decomposition verification for channel flow using MPI",
+    "reference": "Serial vs. parallel comparison; Gropp et al., Using MPI (2014)",
+    "mesh_file": null,
+    "solver": "single_phase_mpi",
+    "verification_method": "verification_cases.exe (Case 8) and benchmark_mpi.exe",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 0.1,
+        "nx": 20,
+        "ny": 10,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 100,
+        "n_ranks": 2,
+        "decomposition": "strip_x",
+        "halo_width": 1,
+        "max_iter": 500,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab"
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "velocity": "parabolic"},
+        "outlet": {"type": "zero_gradient", "pressure": 0.0},
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "serial_parallel_L2_diff": {"max": 1e-10},
+        "speedup_efficiency": {"min": 0.80},
+        "residual_converged": {"max": 1e-5}
+    },
+    "output": {
+        "vtu_file": "results/mpi_channel.vtu",
+        "fields": ["velocity", "pressure", "rank_id"]
+    }
+}

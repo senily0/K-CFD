@@ -1,0 +1,36 @@
+{
+    "case_name": "Unstructured Mesh Poiseuille Flow",
+    "case_id": "07",
+    "description": "Poiseuille flow on unstructured triangular mesh to verify non-orthogonal discretization",
+    "reference": "Analytical parabolic profile; Jasak, Error Analysis and Estimation for the FVM (1996)",
+    "mesh_file": null,
+    "solver": "single_phase",
+    "verification_method": "verification_cases.exe (Case 7)",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 0.1,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 10,
+        "mesh_type": "triangular",
+        "characteristic_length": 0.01,
+        "non_orthogonal_correctors": 2,
+        "max_iter": 1000,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab"
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "velocity": "parabolic"},
+        "outlet": {"type": "zero_gradient", "pressure": 0.0},
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "L2_error": {"max": 0.08},
+        "pressure_drop_error": {"max": 0.05}
+    },
+    "output": {
+        "vtu_file": "results/poiseuille_unstructured.vtu",
+        "fields": ["velocity", "pressure"]
+    }
+}

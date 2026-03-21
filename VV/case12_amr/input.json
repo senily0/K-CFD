@@ -1,0 +1,40 @@
+{
+    "case_name": "Adaptive Mesh Refinement",
+    "case_id": "12",
+    "description": "AMR verification on lid-driven cavity with gradient-based refinement",
+    "reference": "Berger & Oliger, J. Comput. Phys. 53, 484-512 (1984); Berger & Colella, J. Comput. Phys. 82, 64-84 (1989)",
+    "mesh_file": null,
+    "solver": "single_phase_amr",
+    "verification_method": "verification_cases.exe (Case 12)",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 1.0,
+        "base_nx": 16,
+        "base_ny": 16,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 100,
+        "lid_velocity": 1.0,
+        "max_refinement_levels": 3,
+        "refinement_indicator": "velocity_gradient",
+        "refinement_threshold": 0.5,
+        "coarsening_threshold": 0.1,
+        "max_iter": 2000,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab"
+    },
+    "boundary_conditions": {
+        "lid": {"type": "dirichlet", "velocity": [1.0, 0.0]},
+        "wall_bottom": {"type": "wall"},
+        "wall_left": {"type": "wall"},
+        "wall_right": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "amr_vs_uniform_L2_error": {"max": 0.05},
+        "cell_count_reduction": {"min": 0.50}
+    },
+    "output": {
+        "vtu_file": "results/amr_cavity.vtu",
+        "fields": ["velocity", "pressure", "refinement_level"]
+    }
+}

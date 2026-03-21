@@ -1,0 +1,40 @@
+{
+    "case_name": "3D Poiseuille Duct Flow",
+    "case_id": "05",
+    "description": "Fully developed laminar flow in a 3D rectangular duct",
+    "reference": "White, Viscous Fluid Flow (2006); Shah & London, Laminar Flow Forced Convection in Ducts (1978)",
+    "mesh_file": null,
+    "solver": "single_phase_3d",
+    "verification_method": "verification_cases.exe (Case 5)",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 0.1,
+        "Lz": 0.1,
+        "nx": 20,
+        "ny": 10,
+        "nz": 10,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 10,
+        "max_iter": 1000,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab",
+        "preconditioner": "ilu"
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "velocity": "duct_profile"},
+        "outlet": {"type": "zero_gradient", "pressure": 0.0},
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "wall"},
+        "wall_front": {"type": "wall"},
+        "wall_back": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "centerline_velocity_error": {"max": 0.05},
+        "L2_error": {"max": 0.03}
+    },
+    "output": {
+        "vtu_file": "results/duct_3d.vtu",
+        "fields": ["velocity", "pressure"]
+    }
+}

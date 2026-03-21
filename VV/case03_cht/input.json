@@ -1,0 +1,40 @@
+{
+    "case_name": "Conjugate Heat Transfer",
+    "case_id": "03",
+    "description": "Steady-state CHT between heated solid plate and fluid channel",
+    "reference": "Incropera & DeWitt, Fundamentals of Heat and Mass Transfer (2011); Nu=7.54 for parallel plates",
+    "mesh_file": null,
+    "solver": "conjugate_heat_transfer",
+    "verification_method": "verification_cases.exe (Case 3)",
+    "parameters": {
+        "Lx": 0.5,
+        "Ly_fluid": 0.02,
+        "Ly_solid": 0.01,
+        "rho": 1.0,
+        "mu": 0.001,
+        "cp": 1000.0,
+        "k_fluid": 0.6,
+        "k_solid": 50.0,
+        "q_wall": 1000.0,
+        "T_inlet": 300.0,
+        "Re": 200,
+        "max_iter": 2000,
+        "tol": 1e-6
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "velocity": "parabolic", "temperature": 300.0},
+        "outlet": {"type": "zero_gradient", "pressure": 0.0},
+        "wall_top": {"type": "insulated"},
+        "wall_bottom": {"type": "heat_flux", "q": 1000.0},
+        "interface": {"type": "coupled", "continuity": ["temperature", "heat_flux"]}
+    },
+    "pass_criteria": {
+        "nusselt_error": {"max": 0.05},
+        "energy_balance_error": {"max": 0.01},
+        "interface_temperature_jump": {"max": 0.1}
+    },
+    "output": {
+        "vtu_file": "results/cht.vtu",
+        "fields": ["velocity", "pressure", "temperature"]
+    }
+}

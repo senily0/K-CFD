@@ -45,35 +45,85 @@ CASES = {
         "name": "Lid-Driven Cavity",
         "type": "single_phase",
     },
+    "03": {
+        "dir": "case03_cht",
+        "name": "Conjugate Heat Transfer",
+        "type": "conjugate_heat_transfer",
+    },
     "04": {
         "dir": "case04_bubble_rising",
         "name": "Single Bubble Rising",
         "type": "two_fluid",
+    },
+    "05": {
+        "dir": "case05_3d_duct",
+        "name": "3D Poiseuille Duct",
+        "type": "single_phase_3d",
     },
     "06": {
         "dir": "case06_muscl_mms",
         "name": "MUSCL MMS",
         "type": "convection_diffusion",
     },
+    "07": {
+        "dir": "case07_unstructured",
+        "name": "Unstructured Mesh Poiseuille",
+        "type": "single_phase",
+    },
+    "08": {
+        "dir": "case08_mpi",
+        "name": "MPI Parallel",
+        "type": "single_phase_mpi",
+    },
     "09": {
         "dir": "case09_phase_change",
         "name": "Stefan Phase Change",
         "type": "phase_change",
+    },
+    "10": {
+        "dir": "case10_reaction",
+        "name": "Chemical Reaction Transport",
+        "type": "scalar_transport_reaction",
     },
     "11": {
         "dir": "case11_radiation",
         "name": "Radiation Transport",
         "type": "radiation",
     },
+    "12": {
+        "dir": "case12_amr",
+        "name": "Adaptive Mesh Refinement",
+        "type": "single_phase_amr",
+    },
+    "13": {
+        "dir": "case13_gpu",
+        "name": "GPU Acceleration",
+        "type": "single_phase_gpu",
+    },
     "14": {
         "dir": "case14_3d_cavity",
         "name": "3D Lid-Driven Cavity",
         "type": "single_phase_3d",
     },
+    "15": {
+        "dir": "case15_3d_convection",
+        "name": "3D Natural Convection",
+        "type": "single_phase_3d_buoyancy",
+    },
     "16": {
         "dir": "case16_preconditioner",
         "name": "Preconditioner Performance",
         "type": "linear_solver",
+    },
+    "17": {
+        "dir": "case17_adaptive_dt",
+        "name": "Adaptive Time Stepping",
+        "type": "single_phase_transient",
+    },
+    "18": {
+        "dir": "case18_openmp",
+        "name": "OpenMP Parallelism",
+        "type": "single_phase_openmp",
     },
     "19": {
         "dir": "case19_iapws",

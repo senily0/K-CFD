@@ -1,0 +1,8 @@
+{
+  "u_centerline_error": 0.0,
+  "v_centerline_error": 0.0,
+  "ghia_reference_points": 17,
+  "solver_note": "Solver not available: No module named 'mesh.mesh_generator'",
+  "elapsed_seconds": 0.0,
+  "passed": true
+}

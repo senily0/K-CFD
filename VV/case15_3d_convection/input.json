@@ -1,0 +1,46 @@
+{
+    "case_name": "3D Natural Convection",
+    "case_id": "15",
+    "description": "Buoyancy-driven flow in a differentially heated cubic cavity at Ra=10^4",
+    "reference": "Fusegi et al., Int. J. Heat Mass Transfer 34(6), 1543-1557 (1991)",
+    "mesh_file": null,
+    "solver": "single_phase_3d_buoyancy",
+    "verification_method": "verification_cases.exe (Case 15)",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 1.0,
+        "Lz": 1.0,
+        "nx": 20,
+        "ny": 20,
+        "nz": 20,
+        "rho": 1.0,
+        "Pr": 0.71,
+        "Ra": 10000,
+        "beta": 0.01,
+        "T_hot": 1.0,
+        "T_cold": 0.0,
+        "T_ref": 0.5,
+        "gravity": [0.0, -9.81, 0.0],
+        "boussinesq": true,
+        "max_iter": 5000,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab",
+        "preconditioner": "ilu"
+    },
+    "boundary_conditions": {
+        "wall_hot": {"type": "dirichlet", "temperature": 1.0, "velocity": [0, 0, 0]},
+        "wall_cold": {"type": "dirichlet", "temperature": 0.0, "velocity": [0, 0, 0]},
+        "wall_top": {"type": "insulated", "velocity": [0, 0, 0]},
+        "wall_bottom": {"type": "insulated", "velocity": [0, 0, 0]},
+        "wall_front": {"type": "insulated", "velocity": [0, 0, 0]},
+        "wall_back": {"type": "insulated", "velocity": [0, 0, 0]}
+    },
+    "pass_criteria": {
+        "nusselt_error": {"max": 0.05},
+        "energy_balance_error": {"max": 0.02}
+    },
+    "output": {
+        "vtu_file": "results/convection_3d.vtu",
+        "fields": ["velocity", "pressure", "temperature"]
+    }
+}

@@ -1,0 +1,44 @@
+{
+    "case_name": "Adaptive Time Stepping",
+    "case_id": "17",
+    "description": "PID-controlled adaptive time stepping for transient channel flow",
+    "reference": "Gustafsson, ACM TOMS 20(4), 496-517 (1994); Soderlind, Numer. Algorithms 31, 281-310 (2002)",
+    "mesh_file": null,
+    "solver": "single_phase_transient",
+    "verification_method": "verification_cases.exe (Case 17)",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 0.1,
+        "nx": 50,
+        "ny": 20,
+        "rho": 1.0,
+        "mu": 0.01,
+        "dp_dx": -1.0,
+        "dt_initial": 0.001,
+        "dt_min": 1e-6,
+        "dt_max": 0.1,
+        "t_end": 5.0,
+        "cfl_target": 0.5,
+        "error_tol": 1e-4,
+        "adaptive_method": "pid_controller",
+        "safety_factor": 0.9,
+        "growth_limit": 2.0,
+        "shrink_limit": 0.5,
+        "max_iter": 500,
+        "tol": 1e-5
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "pressure": 1.0},
+        "outlet": {"type": "dirichlet", "pressure": 0.0},
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "steady_state_L2_error": {"max": 0.01},
+        "timestep_reduction_ratio": {"min": 0.30}
+    },
+    "output": {
+        "vtu_file": "results/adaptive_dt.vtu",
+        "fields": ["velocity", "pressure", "dt_history"]
+    }
+}

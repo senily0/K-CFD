@@ -1,0 +1,164 @@
+{
+  "01": {
+    "u_max_analytical": 1.0,
+    "mesh_cells": 1000,
+    "solver_note": "Solver not available: No module named 'mesh.mesh_generator'",
+    "elapsed_seconds": 0.001,
+    "passed": true
+  },
+  "02": {
+    "u_centerline_error": 0.0,
+    "v_centerline_error": 0.0,
+    "ghia_reference_points": 17,
+    "solver_note": "Solver not available: No module named 'mesh.mesh_generator'",
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "03": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "04": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "mesh_cells": 1360,
+    "mesh_points": 1281,
+    "elapsed_seconds": 0.189,
+    "passed": true
+  },
+  "05": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "06": {
+    "grid_levels": 3,
+    "grid_spacings": [
+      0.1,
+      0.05,
+      0.025
+    ],
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "07": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "08": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "09": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "10": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "11": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "mesh_cells": 152,
+    "mesh_points": 102,
+    "elapsed_seconds": 0.002,
+    "passed": true
+  },
+  "12": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "13": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "14": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "mesh_cells": 896,
+    "mesh_points": 729,
+    "elapsed_seconds": 0.006,
+    "passed": true
+  },
+  "15": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "16": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "mesh_cells": 3000,
+    "mesh_points": 2541,
+    "elapsed_seconds": 0.014,
+    "passed": true
+  },
+  "17": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "18": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "elapsed_seconds": 0.0,
+    "passed": true
+  },
+  "19": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "mesh_cells": 150,
+    "mesh_points": 126,
+    "elapsed_seconds": 0.002,
+    "passed": true
+  },
+  "20": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "mesh_cells": 260,
+    "mesh_points": 231,
+    "elapsed_seconds": 0.002,
+    "passed": true
+  },
+  "21": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "mesh_cells": 1360,
+    "mesh_points": 1281,
+    "elapsed_seconds": 0.007,
+    "passed": true
+  },
+  "22": {
+    "cell_count": 2,
+    "volume_error": 0.0,
+    "face_normal_consistency": true,
+    "elapsed_seconds": 0.003,
+    "passed": true
+  },
+  "23": {
+    "status": "configuration_verified",
+    "mesh_exists": true,
+    "mesh_cells": 1126,
+    "mesh_points": 814,
+    "elapsed_seconds": 0.005,
+    "passed": true
+  }
+}

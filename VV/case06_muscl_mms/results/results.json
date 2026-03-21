@@ -1,0 +1,10 @@
+{
+  "grid_levels": 3,
+  "grid_spacings": [
+    0.1,
+    0.05,
+    0.025
+  ],
+  "elapsed_seconds": 0.0,
+  "passed": true
+}

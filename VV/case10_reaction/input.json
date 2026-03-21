@@ -1,0 +1,38 @@
+{
+    "case_name": "Chemical Reaction Transport",
+    "case_id": "10",
+    "description": "1D advection-diffusion-reaction with first-order kinetics A->B",
+    "reference": "Analytical exponential decay; Bird, Stewart & Lightfoot, Transport Phenomena (2002)",
+    "mesh_file": null,
+    "solver": "scalar_transport_reaction",
+    "verification_method": "verification_cases.exe (Case 10)",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 0.02,
+        "nx": 100,
+        "ny": 4,
+        "u_inlet": 1.0,
+        "diffusivity": 0.001,
+        "reaction_rate": 1.0,
+        "reaction_order": 1,
+        "C_inlet": 1.0,
+        "Pe": 1000,
+        "Da": 1.0,
+        "max_iter": 500,
+        "tol": 1e-6
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "concentration": 1.0, "velocity": 1.0},
+        "outlet": {"type": "zero_gradient"},
+        "wall_bottom": {"type": "symmetry"},
+        "wall_top": {"type": "symmetry"}
+    },
+    "pass_criteria": {
+        "concentration_L2_error": {"max": 0.05},
+        "mass_balance_error": {"max": 0.01}
+    },
+    "output": {
+        "vtu_file": "results/reaction.vtu",
+        "fields": ["concentration_A", "concentration_B", "velocity"]
+    }
+}

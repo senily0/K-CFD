@@ -1,0 +1,7 @@
+{
+  "u_max_analytical": 1.0,
+  "mesh_cells": 1000,
+  "solver_note": "Solver not available: No module named 'mesh.mesh_generator'",
+  "elapsed_seconds": 0.001,
+  "passed": true
+}

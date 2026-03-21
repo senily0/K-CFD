@@ -1,0 +1,39 @@
+{
+    "case_name": "OpenMP Shared-Memory Parallelism",
+    "case_id": "18",
+    "description": "Thread-parallel solver verification and strong-scaling measurement",
+    "reference": "Chapman, Jost & van der Pas, Using OpenMP (2008); serial vs. parallel comparison",
+    "mesh_file": null,
+    "solver": "single_phase_openmp",
+    "verification_method": "verification_cases.exe (Case 18)",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 1.0,
+        "nx": 32,
+        "ny": 32,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 100,
+        "lid_velocity": 1.0,
+        "thread_counts": [1, 2, 4],
+        "omp_schedule": "static",
+        "max_iter": 1000,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab"
+    },
+    "boundary_conditions": {
+        "lid": {"type": "dirichlet", "velocity": [1.0, 0.0]},
+        "wall_bottom": {"type": "wall"},
+        "wall_left": {"type": "wall"},
+        "wall_right": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "serial_parallel_L2_diff": {"max": 1e-12},
+        "speedup_2threads": {"min": 1.5},
+        "speedup_4threads": {"min": 2.5}
+    },
+    "output": {
+        "vtu_file": "results/openmp_cavity.vtu",
+        "fields": ["velocity", "pressure"]
+    }
+}

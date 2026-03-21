@@ -42,12 +42,22 @@ pip install gmsh numpy scipy meshio
 |---|------|------|------|-----------|
 | 01 | Poiseuille Flow | Single-phase | 2D quad | Analytical |
 | 02 | Lid-Driven Cavity | Single-phase | 2D quad | Ghia et al. 1982 |
+| 03 | Conjugate Heat Transfer | CHT | 2D multi-domain | Incropera & DeWitt 2011 |
 | 04 | Single Bubble Rising | Two-fluid | 2D quad + tri | Hysing et al. 2009 |
+| 05 | 3D Poiseuille Duct | Single-phase 3D | 3D hex | White 2006 |
 | 06 | MUSCL MMS | Convection-diffusion | 2D quad (3 levels) | Roache 2002 |
+| 07 | Unstructured Mesh | Single-phase | 2D tri | Jasak 1996 |
+| 08 | MPI Parallel | Distributed | 2D quad (decomposed) | Serial vs. parallel |
 | 09 | Phase Change | Two-fluid + phase change | (generated) | Stefan problem |
+| 10 | Chemical Reaction | Scalar transport | 2D quad (quasi-1D) | Analytical decay |
 | 11 | Radiation Transport | Radiation | 1D slab | Analytical P1 |
+| 12 | Adaptive Mesh Refinement | AMR | 2D quad (adaptive) | Berger & Oliger 1984 |
+| 13 | GPU Acceleration | GPU compute | 2D quad | CPU reference |
 | 14 | 3D Lid-Driven Cavity | Single-phase 3D | 3D hex | Ku et al. 1987 |
+| 15 | 3D Natural Convection | Buoyancy 3D | 3D hex | Fusegi et al. 1991 |
 | 16 | Preconditioner | Linear solver | 3D hex | Iterative methods |
+| 17 | Adaptive Time Stepping | Transient | 2D quad | Gustafsson 1994 |
+| 18 | OpenMP Parallelism | Shared-memory | 2D quad | Serial vs. parallel |
 | 19 | IAPWS Steam Tables | Thermophysical | 2D channel | IAPWS-IF97 |
 | 20 | RPI Wall Boiling | Two-fluid boiling | 2D channel | Kurul & Podowski 1990 |
 | 21 | Virtual Mass Force | Two-fluid | 2D quad | Analytical acceleration |

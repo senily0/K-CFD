@@ -1,0 +1,39 @@
+{
+    "case_name": "GPU Acceleration",
+    "case_id": "13",
+    "description": "GPU vs CPU solver comparison on lid-driven cavity at Re=400",
+    "reference": "CPU reference solution; Bell & Garland, Efficient SpMV on CUDA (2008)",
+    "mesh_file": null,
+    "solver": "single_phase_gpu",
+    "verification_method": "verification_cases.exe (Case 13)",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 1.0,
+        "nx": 64,
+        "ny": 64,
+        "rho": 1.0,
+        "mu": 0.0025,
+        "Re": 400,
+        "lid_velocity": 1.0,
+        "gpu_backend": "cupy",
+        "sparse_format": "csr",
+        "max_iter": 3000,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab",
+        "preconditioner": "jacobi"
+    },
+    "boundary_conditions": {
+        "lid": {"type": "dirichlet", "velocity": [1.0, 0.0]},
+        "wall_bottom": {"type": "wall"},
+        "wall_left": {"type": "wall"},
+        "wall_right": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "gpu_cpu_L2_diff": {"max": 1e-6},
+        "gpu_speedup": {"min": 2.0}
+    },
+    "output": {
+        "vtu_file": "results/gpu_cavity.vtu",
+        "fields": ["velocity", "pressure"]
+    }
+}
