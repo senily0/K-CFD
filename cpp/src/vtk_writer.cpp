@@ -1,7 +1,3 @@
-// Disable optimization for this file — MinGW -O1/-O2 causes segfaults
-// in the unordered_map iteration + ofstream combination below.
-#pragma GCC optimize("O0")
-
 #include "twofluid/vtk_writer.hpp"
 
 #include <fstream>

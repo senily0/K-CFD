@@ -3,10 +3,10 @@ project(twofluid_cpp CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# MinGW -O2 causes stack-related crashes with Eigen; use -O1 for Release
+# MinGW + Eigen: use -O2 (not -O3 which can cause alignment issues).
+# Stack increased to 16MB for large Eigen temporaries.
 if(MINGW AND CMAKE_BUILD_TYPE STREQUAL "Release")
-    string(REPLACE "-O3" "-O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
-    string(REPLACE "-O2" "-O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    string(REPLACE "-O3" "-O2" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 endif()
 
 # Try system Eigen first, fall back to local path
