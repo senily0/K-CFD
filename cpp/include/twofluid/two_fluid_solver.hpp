@@ -11,6 +11,7 @@
 #include "twofluid/closure.hpp"
 #include "twofluid/simple_solver.hpp"  // for SolveResult
 #include "twofluid/chemistry.hpp"
+#include "twofluid/wall_boiling.hpp"
 
 namespace twofluid {
 
@@ -68,6 +69,8 @@ public:
     bool enable_wall_lubrication = false;
     bool enable_turbulent_dispersion = false;
     double C_td = 1.0;  // turbulent dispersion coefficient
+    bool enable_virtual_mass = false;
+    double C_vm = 0.5;  // virtual mass coefficient (0.5 for spheres, Lamb 1932)
 
     // Property model: "constant" or "iapws97"
     std::string property_model = "constant";
@@ -78,6 +81,10 @@ public:
 
     // Time scheme: "euler" or "bdf2"
     std::string time_scheme = "euler";
+
+    // RPI wall boiling model (Kurul-Podowski 1991)
+    bool enable_wall_boiling = false;
+    double wall_boiling_contact_angle = 80.0;
 
     // Species transport (optional)
     bool solve_species = false;
@@ -158,6 +165,10 @@ private:
     // Per-component aP storage for pressure correction
     Eigen::VectorXd aP_l_, aP_g_storage_;
     bool has_aP_l_ = false, has_aP_g_ = false;
+
+    // RPI wall boiling: per-cell evaporation mass source [kg/(m^3·s)]
+    // Filled during liquid energy solve; consumed by solve_volume_fraction.
+    Eigen::VectorXd rpi_wall_dot_m_;
 
     // Cell-local property fields (used when property_model == "iapws97")
     Eigen::VectorXd rho_l_field, rho_g_field;

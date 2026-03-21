@@ -471,11 +471,19 @@ double TwoFluidSolver::simple_iteration() {
             Eigen::VectorXd dot_m = solve_energy
                 ? compute_phase_change_rate()
                 : Eigen::VectorXd::Zero(mesh_.n_cells);
+            // Add RPI wall evaporation source (from previous energy iteration)
+            if (enable_wall_boiling && rpi_wall_dot_m_.size() == mesh_.n_cells) {
+                dot_m += rpi_wall_dot_m_;
+            }
             res_alpha = solve_volume_fraction(mf_g, dot_m);
         } else {
             Eigen::VectorXd dot_m = solve_energy
                 ? compute_phase_change_rate()
                 : Eigen::VectorXd::Zero(mesh_.n_cells);
+            // Add RPI wall evaporation source (from previous energy iteration)
+            if (enable_wall_boiling && rpi_wall_dot_m_.size() == mesh_.n_cells) {
+                dot_m += rpi_wall_dot_m_;
+            }
             if (solve_energy) {
                 res_alpha = solve_volume_fraction(mf_g, dot_m);
             }
@@ -686,6 +694,28 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
         double vol = mesh_.cells[ci].volume;
         system.add_diagonal(ci, K_drag[ci] * vol);
         system.add_source(ci, K_drag[ci] * vol * U_other.values(ci, comp));
+    }
+
+    // Virtual mass force (implicit temporal coupling between phases)
+    // F_vm = C_vm * rho_l * alpha_g * (Du_l/Dt - Du_g/Dt)
+    // Linearized: diagonal += K_vm*V/dt, source += K_vm*V/dt * (u_other^n - sign*(u_self^old - u_other^old))
+    if (enable_virtual_mass && dt > 0.0 && phi.old_values.has_value()) {
+        auto K_vm = virtual_mass_coefficient(alpha_g_.values, rho_l, C_vm);
+        for (int ci = 0; ci < n; ++ci) {
+            double vol  = mesh_.cells[ci].volume;
+            double kvm  = K_vm[ci] * vol / dt;
+            double u_other_old = U_other.old_values.has_value()
+                ? U_other.old_values.value()(ci, comp)
+                : U_other.values(ci, comp);
+            double u_self_old = phi.old_values.value()[ci];
+            // Diagonal: implicit contribution of this phase's new velocity
+            system.add_diagonal(ci, kvm);
+            // Source: explicit other-phase new velocity + old time-level correction
+            // Both phases share the same symmetric form:
+            //   +kvm * u_other^n  - kvm * (u_self^old - u_other^old)
+            double u_other_new = U_other.values(ci, comp);
+            system.add_source(ci, kvm * (u_other_new - (u_self_old - u_other_old)));
+        }
     }
 
     // Gravity: alpha * rho * g (body force on this phase)
@@ -1144,6 +1174,12 @@ double TwoFluidSolver::solve_phase_energy(
 
     // Wall heat flux
     bool is_liquid = (phase == "liquid");
+
+    // Initialise RPI evaporation accumulator (liquid pass only)
+    if (is_liquid && enable_wall_boiling) {
+        rpi_wall_dot_m_ = Eigen::VectorXd::Zero(n);
+    }
+
     for (const auto& [patch_name, q_wall] : wall_heat_flux_) {
         auto it = mesh_.boundary_patches.find(patch_name);
         if (it != mesh_.boundary_patches.end()) {
@@ -1152,10 +1188,56 @@ double TwoFluidSolver::solve_phase_energy(
                 int owner = face.owner;
                 double al = alpha_l_.values[owner];
                 double ag = alpha_g_.values[owner];
-                if (is_liquid) {
-                    system.add_source(owner, q_wall * face.area * al);
-                } else {
+
+                if (enable_wall_boiling && is_liquid) {
+                    // RPI partition: build params from current solver scalars
+                    WallBoilingParams wp;
+                    wp.T_sat         = T_sat;
+                    wp.h_fg          = h_fg;
+                    wp.rho_l         = rho_l;
+                    wp.rho_g         = rho_g;
+                    wp.cp_l          = cp_l;
+                    wp.k_l           = k_l;
+                    wp.mu_l          = mu_l;
+                    wp.sigma         = (sigma_surface > 0.0) ? sigma_surface : 0.059;
+                    wp.contact_angle = wall_boiling_contact_angle;
+                    wp.g             = std::abs(g[g.size() - 1]);
+                    if (wp.g < 1e-10) wp.g = 9.81;
+
+                    RPIWallBoiling rpi(wp);
+
+                    // Wall temperature estimate: T_l of owner cell
+                    double T_wall   = T.values[owner];
+                    double T_liq    = T_other.values[owner];  // gas in liquid eq — use T_l itself
+                    // For liquid phase solve: T is T_l_, T_other is T_g_.
+                    // We need T_wall > T_sat to get boiling; use T_l as proxy.
+                    // h_conv: single-phase estimate Nu~100 * k_l / L_cell
+                    double L_cell   = std::cbrt(mesh_.cells[owner].volume);
+                    double h_conv   = 100.0 * k_l / std::max(L_cell, 1e-6);
+
+                    auto part = rpi.compute(T_wall, T_liq, h_conv);
+
+                    // Liquid receives convective + quenching heat
+                    double q_liq = (part.q_conv + part.q_quench) * face.area;
+                    system.add_source(owner, q_liq * al);
+
+                    // Accumulate evaporation mass source [kg/(m^3·s)]
+                    double vol = mesh_.cells[owner].volume;
+                    if (vol > 1e-30) {
+                        rpi_wall_dot_m_[owner] += part.m_dot * face.area / vol;
+                    }
+                } else if (enable_wall_boiling && !is_liquid) {
+                    // Gas phase receives evaporative heat (q_evap already drives
+                    // mass generation; add q_evap to gas energy as latent source)
+                    // For simplicity, apply full q_wall weighted by gas fraction
                     system.add_source(owner, q_wall * face.area * ag);
+                } else {
+                    // Standard (no RPI): partition by volume fraction
+                    if (is_liquid) {
+                        system.add_source(owner, q_wall * face.area * al);
+                    } else {
+                        system.add_source(owner, q_wall * face.area * ag);
+                    }
                 }
             }
         }

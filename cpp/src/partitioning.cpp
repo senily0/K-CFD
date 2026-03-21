@@ -1,7 +1,12 @@
 #include "twofluid/partitioning.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <limits>
+#include <numeric>
+#include <queue>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace twofluid {
 
@@ -304,6 +309,348 @@ LocalMesh extract_local_mesh(const FVMesh& global_mesh,
 
     lm.mesh.build_boundary_face_cache();
     return lm;
+}
+
+// ---------------------------------------------------------------------------
+// GraphPartitioner — multilevel k-way partitioner (METIS-like, no external lib)
+// ---------------------------------------------------------------------------
+
+GraphPartitioner::Graph GraphPartitioner::build_dual_graph(const FVMesh& mesh) {
+    const int nv = mesh.n_cells;
+    // Count neighbours per cell for xadj
+    std::vector<int> degree(nv, 0);
+    for (int fi = 0; fi < mesh.n_internal_faces; ++fi) {
+        const Face& f = mesh.faces[fi];
+        ++degree[f.owner];
+        ++degree[f.neighbour];
+    }
+
+    Graph g;
+    g.n_vertices = nv;
+    g.xadj.resize(nv + 1, 0);
+    for (int i = 0; i < nv; ++i) g.xadj[i + 1] = g.xadj[i] + degree[i];
+    g.adjncy.resize(g.xadj[nv]);
+    g.adjwgt.resize(g.xadj[nv], 1);
+
+    // Fill adjacency using fill pointer
+    std::vector<int> fill(nv, 0);
+    for (int fi = 0; fi < mesh.n_internal_faces; ++fi) {
+        const Face& f = mesh.faces[fi];
+        int o = f.owner, nb = f.neighbour;
+        g.adjncy[g.xadj[o] + fill[o]++] = nb;
+        g.adjncy[g.xadj[nb] + fill[nb]++] = o;
+    }
+
+    // Copy cell centres
+    g.cx.resize(nv); g.cy.resize(nv); g.cz.resize(nv);
+    for (int i = 0; i < nv; ++i) {
+        g.cx[i] = mesh.cells[i].center[0];
+        g.cy[i] = mesh.cells[i].center[1];
+        g.cz[i] = mesh.cells[i].center[2];
+    }
+    return g;
+}
+
+// Coarsen by heavy-edge matching (greedy: first unmatched neighbour wins).
+// coarse_to_fine[c] = list of fine vertices merged into coarse vertex c.
+GraphPartitioner::Graph GraphPartitioner::coarsen(
+        const Graph& g, std::vector<std::vector<int>>& coarse_to_fine) {
+
+    const int nv = g.n_vertices;
+    std::vector<int> match(nv, -1);  // fine -> coarse id
+    int nc = 0;                       // number of coarse vertices
+
+    // Greedy matching: iterate vertices in natural order
+    for (int v = 0; v < nv; ++v) {
+        if (match[v] != -1) continue;
+        // Try to match with first unmatched neighbour
+        int partner = -1;
+        for (int j = g.xadj[v]; j < g.xadj[v + 1]; ++j) {
+            int u = g.adjncy[j];
+            if (match[u] == -1) { partner = u; break; }
+        }
+        if (partner == -1) {
+            // No unmatched neighbour — singleton super-vertex
+            match[v] = nc++;
+        } else {
+            match[v] = match[partner] = nc++;
+        }
+    }
+
+    coarse_to_fine.assign(nc, {});
+    for (int v = 0; v < nv; ++v) coarse_to_fine[match[v]].push_back(v);
+
+    // Build coarsened graph in CSR
+    // For each coarse vertex pair, sum edge weights of fine edges between them
+    // Use a temporary adjacency map per coarse vertex
+    std::vector<std::unordered_map<int, int>> cadj(nc);
+    for (int v = 0; v < nv; ++v) {
+        int cv = match[v];
+        for (int j = g.xadj[v]; j < g.xadj[v + 1]; ++j) {
+            int u = g.adjncy[j];
+            int cu = match[u];
+            if (cv != cu) cadj[cv][cu] += g.adjwgt[j];
+        }
+    }
+
+    Graph cg;
+    cg.n_vertices = nc;
+    cg.xadj.resize(nc + 1, 0);
+    for (int cv = 0; cv < nc; ++cv) cg.xadj[cv + 1] = cg.xadj[cv] + static_cast<int>(cadj[cv].size());
+    cg.adjncy.resize(cg.xadj[nc]);
+    cg.adjwgt.resize(cg.xadj[nc]);
+    cg.cx.resize(nc); cg.cy.resize(nc); cg.cz.resize(nc);
+
+    for (int cv = 0; cv < nc; ++cv) {
+        // Average centre of constituent fine vertices
+        double sx = 0, sy = 0, sz = 0;
+        for (int fv : coarse_to_fine[cv]) { sx += g.cx[fv]; sy += g.cy[fv]; sz += g.cz[fv]; }
+        double inv = 1.0 / static_cast<int>(coarse_to_fine[cv].size());
+        cg.cx[cv] = sx * inv; cg.cy[cv] = sy * inv; cg.cz[cv] = sz * inv;
+
+        int pos = cg.xadj[cv];
+        for (auto& [cu, wt] : cadj[cv]) {
+            cg.adjncy[pos] = cu;
+            cg.adjwgt[pos] = wt;
+            ++pos;
+        }
+    }
+    return cg;
+}
+
+// BFS-based bisection: find two antipodal vertices as seeds, then grow two
+// regions greedily to balance partition sizes.
+std::vector<int> GraphPartitioner::initial_bisect(const Graph& g) {
+    const int nv = g.n_vertices;
+    if (nv == 0) return {};
+
+    // Find seed 0: vertex with extreme coordinate in the widest axis
+    double xspan = *std::max_element(g.cx.begin(), g.cx.end()) - *std::min_element(g.cx.begin(), g.cx.end());
+    double yspan = *std::max_element(g.cy.begin(), g.cy.end()) - *std::min_element(g.cy.begin(), g.cy.end());
+    double zspan = *std::max_element(g.cz.begin(), g.cz.end()) - *std::min_element(g.cz.begin(), g.cz.end());
+
+    const std::vector<double>* coord = &g.cx;
+    if (yspan > xspan && yspan >= zspan) coord = &g.cy;
+    else if (zspan > xspan && zspan > yspan) coord = &g.cz;
+
+    int seed0 = static_cast<int>(std::min_element(coord->begin(), coord->end()) - coord->begin());
+    int seed1 = static_cast<int>(std::max_element(coord->begin(), coord->end()) - coord->begin());
+
+    // BFS from both seeds simultaneously; each vertex gets label 0 or 1
+    std::vector<int> parts(nv, -1);
+    std::queue<int> q;
+    parts[seed0] = 0; q.push(seed0);
+    parts[seed1] = 1; q.push(seed1);
+
+    const int target = nv / 2;
+    int cnt0 = 1, cnt1 = 1;
+
+    while (!q.empty()) {
+        int v = q.front(); q.pop();
+        for (int j = g.xadj[v]; j < g.xadj[v + 1]; ++j) {
+            int u = g.adjncy[j];
+            if (parts[u] == -1) {
+                // Assign to the smaller partition, but cap at target
+                int p;
+                if (cnt0 < target) p = 0;
+                else if (cnt1 < nv - target) p = 1;
+                else p = (parts[v] == 0) ? 0 : 1;  // follow parent
+                parts[u] = p;
+                if (p == 0) ++cnt0; else ++cnt1;
+                q.push(u);
+            }
+        }
+    }
+
+    // Any remaining unvisited (disconnected) vertices go to part 0
+    for (int v = 0; v < nv; ++v) if (parts[v] == -1) parts[v] = 0;
+
+    return parts;
+}
+
+// Fiduccia-Mattheyses single pass: iterate boundary vertices, swap those
+// with positive gain. Repeat until no improvement.
+void GraphPartitioner::kl_refine(const Graph& g, std::vector<int>& parts) {
+    const int nv = g.n_vertices;
+    bool improved = true;
+    const int max_passes = 10;
+
+    for (int pass = 0; pass < max_passes && improved; ++pass) {
+        improved = false;
+
+        for (int v = 0; v < nv; ++v) {
+            int pv = parts[v];
+            // Check if v is on boundary (has a neighbour in the other part)
+            bool boundary = false;
+            int ext = 0, intr = 0;
+            for (int j = g.xadj[v]; j < g.xadj[v + 1]; ++j) {
+                int u = g.adjncy[j];
+                int w = g.adjwgt[j];
+                if (parts[u] != pv) { ext += w; boundary = true; }
+                else                { intr += w; }
+            }
+            if (!boundary) continue;
+
+            // gain = (edges to other side) - (edges to same side)
+            int gain = ext - intr;
+            if (gain > 0) {
+                // Count sizes
+                int cnt0 = 0, cnt1 = 0;
+                for (int p : parts) { if (p == 0) ++cnt0; else ++cnt1; }
+                // Only swap if balance stays within 20% of ideal
+                int target0 = nv / 2;
+                int new_cnt_pv   = (pv == 0) ? cnt0 - 1 : cnt1 - 1;
+                int new_cnt_npv  = (pv == 0) ? cnt1 + 1 : cnt0 + 1;
+                int imb_before = std::abs(cnt0 - cnt1);
+                int imb_after  = std::abs(new_cnt_pv - new_cnt_npv);
+                (void)target0;
+                // Accept if gain positive and balance doesn't worsen beyond threshold
+                if (imb_after <= std::max(imb_before, nv / 5 + 1)) {
+                    parts[v] = 1 - pv;
+                    improved = true;
+                }
+            }
+        }
+    }
+}
+
+std::vector<int> GraphPartitioner::multilevel_bisect(const Graph& g) {
+    if (g.n_vertices <= 1) {
+        return std::vector<int>(g.n_vertices, 0);
+    }
+    if (g.n_vertices <= 4) {
+        return initial_bisect(g);
+    }
+
+    // Coarsen until small enough or no reduction possible
+    constexpr int COARSEN_LIMIT = 100;
+    std::vector<Graph> hierarchy;
+    std::vector<std::vector<std::vector<int>>> c2f_stack;  // [level][coarse_v] = list of fine v
+
+    hierarchy.push_back(g);
+    while (hierarchy.back().n_vertices > COARSEN_LIMIT) {
+        std::vector<std::vector<int>> c2f;
+        Graph cg = coarsen(hierarchy.back(), c2f);
+        if (cg.n_vertices >= hierarchy.back().n_vertices) break;  // no progress
+        c2f_stack.push_back(std::move(c2f));
+        hierarchy.push_back(std::move(cg));
+    }
+
+    // Bisect coarsest graph
+    std::vector<int> parts = initial_bisect(hierarchy.back());
+    kl_refine(hierarchy.back(), parts);
+
+    // Uncoarsen: project partition back through hierarchy levels
+    for (int lvl = static_cast<int>(c2f_stack.size()) - 1; lvl >= 0; --lvl) {
+        const auto& c2f = c2f_stack[lvl];
+        const Graph& fine_g = hierarchy[lvl];
+        const int nfine = fine_g.n_vertices;
+        std::vector<int> fine_parts(nfine);
+        for (int cv = 0; cv < static_cast<int>(c2f.size()); ++cv) {
+            for (int fv : c2f[cv]) fine_parts[fv] = parts[cv];
+        }
+        kl_refine(fine_g, fine_parts);
+        parts = std::move(fine_parts);
+    }
+
+    return parts;
+}
+
+GraphPartitioner::Graph GraphPartitioner::subgraph(
+        const Graph& g, const std::vector<int>& verts,
+        std::vector<int>& local_to_global) {
+    local_to_global = verts;
+    const int nv = static_cast<int>(verts.size());
+
+    // Build global->local map
+    std::unordered_map<int, int> g2l;
+    g2l.reserve(nv * 2);
+    for (int i = 0; i < nv; ++i) g2l[verts[i]] = i;
+
+    Graph sg;
+    sg.n_vertices = nv;
+    sg.xadj.resize(nv + 1, 0);
+    sg.cx.resize(nv); sg.cy.resize(nv); sg.cz.resize(nv);
+
+    for (int li = 0; li < nv; ++li) {
+        int gi = verts[li];
+        sg.cx[li] = g.cx[gi]; sg.cy[li] = g.cy[gi]; sg.cz[li] = g.cz[gi];
+        int deg = 0;
+        for (int j = g.xadj[gi]; j < g.xadj[gi + 1]; ++j) {
+            if (g2l.count(g.adjncy[j])) ++deg;
+        }
+        sg.xadj[li + 1] = sg.xadj[li] + deg;
+    }
+    sg.adjncy.resize(sg.xadj[nv]);
+    sg.adjwgt.resize(sg.xadj[nv]);
+    for (int li = 0; li < nv; ++li) {
+        int gi = verts[li];
+        int pos = sg.xadj[li];
+        for (int j = g.xadj[gi]; j < g.xadj[gi + 1]; ++j) {
+            auto it = g2l.find(g.adjncy[j]);
+            if (it != g2l.end()) {
+                sg.adjncy[pos] = it->second;
+                sg.adjwgt[pos] = g.adjwgt[j];
+                ++pos;
+            }
+        }
+    }
+    return sg;
+}
+
+void GraphPartitioner::recursive_bisect(const Graph& g, int n_parts,
+                                         std::vector<int>& part_ids, int offset) {
+    const int nv = g.n_vertices;
+    if (n_parts == 1 || nv == 0) {
+        for (int v = 0; v < nv; ++v) part_ids[v] = offset;
+        return;
+    }
+
+    // Bisect
+    std::vector<int> bisect = multilevel_bisect(g);
+
+    const int left_parts  = n_parts / 2;
+    const int right_parts = n_parts - left_parts;
+
+    // Collect vertices in each half
+    std::vector<int> left_verts, right_verts;
+    for (int v = 0; v < nv; ++v) {
+        if (bisect[v] == 0) left_verts.push_back(v);
+        else                right_verts.push_back(v);
+    }
+
+    if (left_parts == 1) {
+        for (int v : left_verts) part_ids[v] = offset;
+    } else {
+        std::vector<int> l2g;
+        Graph sg = subgraph(g, left_verts, l2g);
+        std::vector<int> sub_parts(static_cast<int>(left_verts.size()));
+        recursive_bisect(sg, left_parts, sub_parts, 0);
+        for (int li = 0; li < static_cast<int>(left_verts.size()); ++li)
+            part_ids[left_verts[li]] = offset + sub_parts[li];
+    }
+
+    if (right_parts == 1) {
+        for (int v : right_verts) part_ids[v] = offset + left_parts;
+    } else {
+        std::vector<int> l2g;
+        Graph sg = subgraph(g, right_verts, l2g);
+        std::vector<int> sub_parts(static_cast<int>(right_verts.size()));
+        recursive_bisect(sg, right_parts, sub_parts, 0);
+        for (int li = 0; li < static_cast<int>(right_verts.size()); ++li)
+            part_ids[right_verts[li]] = offset + left_parts + sub_parts[li];
+    }
+}
+
+std::vector<int> GraphPartitioner::partition(const FVMesh& mesh, int n_parts) {
+    if (n_parts <= 0) throw std::invalid_argument("n_parts must be >= 1");
+
+    std::vector<int> part_ids(mesh.n_cells, 0);
+    if (n_parts == 1) return part_ids;
+
+    Graph g = build_dual_graph(mesh);
+    recursive_bisect(g, n_parts, part_ids, 0);
+    return part_ids;
 }
 
 } // namespace twofluid

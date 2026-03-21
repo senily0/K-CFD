@@ -51,6 +51,7 @@ add_library(twofluid_core STATIC
     src/hybrid_mesh_generator.cpp
     src/steam_tables.cpp
     src/mesh_reader.cpp
+    src/polymesh_reader.cpp
     src/surface_tension.cpp
     src/mpi_comm.cpp
     src/partitioning.cpp
@@ -58,6 +59,7 @@ add_library(twofluid_core STATIC
     src/distributed_mesh.cpp
     src/distributed_solver.cpp
     src/json_input.cpp
+    src/wall_boiling.cpp
 )
 target_include_directories(twofluid_core PUBLIC
     include

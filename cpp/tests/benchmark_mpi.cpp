@@ -88,10 +88,21 @@ static void set_channel_bcs(Solver& solver, FVMesh& mesh,
 
 int main(int argc, char* argv[]) {
     // Parse arguments
-    int nx = (argc > 1) ? std::atoi(argv[1]) : 40;
-    int ny = (argc > 2) ? std::atoi(argv[2]) : 20;
-    int nz = (argc > 3) ? std::atoi(argv[3]) : 20;
-    int max_iter = (argc > 4) ? std::atoi(argv[4]) : 50;
+    // Optional flag: --graph  -> use GraphPartitioner (multilevel k-way)
+    //                --rcb    -> use RCBPartitioner (default)
+    bool use_graph_partitioner = false;
+    std::vector<char*> pos_args;
+    for (int i = 1; i < argc; ++i) {
+        std::string a(argv[i]);
+        if (a == "--graph") use_graph_partitioner = true;
+        else if (a == "--rcb") use_graph_partitioner = false;
+        else pos_args.push_back(argv[i]);
+    }
+
+    int nx       = (pos_args.size() > 0) ? std::atoi(pos_args[0]) : 40;
+    int ny       = (pos_args.size() > 1) ? std::atoi(pos_args[1]) : 20;
+    int nz       = (pos_args.size() > 2) ? std::atoi(pos_args[2]) : 20;
+    int max_iter = (pos_args.size() > 3) ? std::atoi(pos_args[3]) : 50;
 
     MPIComm comm;
     int n_cells_total = nx * ny * nz;
@@ -104,6 +115,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  Mesh:         " << nx << " x " << ny << " x " << nz
                   << " = " << n_cells_total << " cells\n";
         std::cout << "  Max iter:     " << max_iter << "\n";
+        std::cout << "  Partitioner:  " << (use_graph_partitioner ? "GraphPartitioner (multilevel k-way)" : "RCBPartitioner (coordinate bisection)") << "\n";
         std::cout << "  Est. memory:  ~" << (n_cells_total * 300) / (1024*1024) << " MB\n";
         std::cout << "================================================================\n\n";
     }
@@ -217,7 +229,10 @@ int main(int argc, char* argv[]) {
         std::vector<int> part_ids(mesh.n_cells, 0);
         if (comm.is_root()) {
             std::cout << "Partitioning into " << comm.size() << " domains..." << std::flush;
-            part_ids = RCBPartitioner::partition(mesh, comm.size());
+            if (use_graph_partitioner)
+                part_ids = GraphPartitioner::partition(mesh, comm.size());
+            else
+                part_ids = RCBPartitioner::partition(mesh, comm.size());
         }
 
 #ifdef USE_MPI

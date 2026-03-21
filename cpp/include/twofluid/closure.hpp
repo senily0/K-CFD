@@ -102,4 +102,17 @@ Eigen::VectorXd turbulent_dispersion_burns(
     const Eigen::MatrixXd& grad_alpha_g,
     double C_td = 1.0);
 
+// ---------------------------------------------------------------------------
+// Virtual mass (added mass) force
+// ---------------------------------------------------------------------------
+
+/// Virtual mass force coefficient.
+/// C_vm = 0.5 for spheres (Lamb 1932, Auton 1988).
+/// Returns per-cell implicit coupling coefficient K_vm = C_vm * rho_l * alpha_g.
+/// In momentum equation: F_vm = K_vm/dt * (Du_l/Dt - Du_g/Dt)
+Eigen::VectorXd virtual_mass_coefficient(
+    const Eigen::VectorXd& alpha_g,
+    double rho_l,
+    double C_vm = 0.5);
+
 } // namespace twofluid

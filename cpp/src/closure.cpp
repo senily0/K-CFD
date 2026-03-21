@@ -412,4 +412,20 @@ Eigen::VectorXd turbulent_dispersion_burns(
     return F_td;
 }
 
+// ---------------------------------------------------------------------------
+// Virtual mass (added mass) force coefficient
+// ---------------------------------------------------------------------------
+
+Eigen::VectorXd virtual_mass_coefficient(
+    const Eigen::VectorXd& alpha_g, double rho_l, double C_vm)
+{
+    int n = static_cast<int>(alpha_g.size());
+    Eigen::VectorXd K_vm(n);
+#pragma omp parallel for schedule(static)
+    for (int i = 0; i < n; ++i) {
+        K_vm[i] = C_vm * rho_l * alpha_g[i];
+    }
+    return K_vm;
+}
+
 } // namespace twofluid
