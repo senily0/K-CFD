@@ -1,0 +1,41 @@
+{
+    "case_name": "Virtual Mass Force",
+    "case_id": "21",
+    "description": "Verification of virtual (added) mass force on accelerating bubble",
+    "reference": "Analytical: F_vm = C_vm * rho_l * V_b * (Du_l/Dt - Du_g/Dt), C_vm = 0.5 for sphere",
+    "mesh_file": "mesh/quad_20x60.msh",
+    "mesh_files": [
+        "mesh/quad_20x60.msh"
+    ],
+    "solver": "two_fluid",
+    "parameters": {
+        "Lx": 0.1,
+        "Ly": 0.3,
+        "rho_liquid": 1000.0,
+        "rho_gas": 1.0,
+        "mu_liquid": 0.001,
+        "mu_gas": 1e-5,
+        "gravity": -9.81,
+        "bubble_radius": 0.01,
+        "C_vm": 0.5,
+        "dt": 0.0005,
+        "t_end": 0.2,
+        "max_iter_per_step": 20,
+        "tol": 1e-5,
+        "virtual_mass": true
+    },
+    "boundary_conditions": {
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "outlet"},
+        "wall_left": {"type": "wall"},
+        "wall_right": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "acceleration_error": {"max": 0.10},
+        "energy_balance_error": {"max": 0.05}
+    },
+    "output": {
+        "vtu_file": "results/virtual_mass.vtu",
+        "fields": ["velocity_liquid", "velocity_gas", "alpha", "virtual_mass_force"]
+    }
+}

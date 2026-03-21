@@ -1,0 +1,47 @@
+{
+    "case_name": "RPI Wall Boiling Model",
+    "case_id": "20",
+    "description": "Subcooled nucleate boiling in a heated vertical channel using the RPI wall boiling model",
+    "reference": "Kurul, N., Podowski, M.Z., Multidimensional effects in forced convection subcooled boiling, Proc. 9th Int. Heat Transfer Conf. (1990)",
+    "mesh_file": "mesh/heated_channel_20x10.msh",
+    "mesh_files": [
+        "mesh/heated_channel_20x10.msh"
+    ],
+    "solver": "two_fluid_boiling",
+    "parameters": {
+        "Lx": 0.5,
+        "Ly": 0.02,
+        "pressure": 15.5e6,
+        "T_inlet": 543.15,
+        "T_sat": 617.94,
+        "q_wall": 500000.0,
+        "mass_flux": 3000.0,
+        "rho_liquid": 594.0,
+        "rho_vapor": 101.9,
+        "mu_liquid": 7.85e-5,
+        "mu_vapor": 2.11e-5,
+        "cp_liquid": 6270.0,
+        "k_liquid": 0.454,
+        "h_fg": 961000.0,
+        "sigma": 0.0045,
+        "dt": 0.001,
+        "t_end": 2.0,
+        "max_iter_per_step": 30,
+        "tol": 1e-5
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "velocity": "uniform", "temperature": 543.15, "alpha_vapor": 0.0},
+        "outlet": {"type": "zero_gradient"},
+        "wall_heated": {"type": "rpi_boiling", "q": 500000.0},
+        "wall_top": {"type": "adiabatic"}
+    },
+    "pass_criteria": {
+        "void_fraction_outlet": {"min": 0.0, "max": 0.3},
+        "wall_temperature": {"min": 580.0, "max": 650.0},
+        "energy_balance_error": {"max": 0.05}
+    },
+    "output": {
+        "vtu_file": "results/rpi_boiling.vtu",
+        "fields": ["velocity_liquid", "velocity_vapor", "temperature", "alpha_vapor", "wall_heat_flux"]
+    }
+}

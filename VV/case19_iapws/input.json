@@ -1,0 +1,36 @@
+{
+    "case_name": "IAPWS Steam Tables Verification",
+    "case_id": "19",
+    "description": "Verify IAPWS-IF97 thermophysical property implementation in heated channel flow",
+    "reference": "IAPWS-IF97: Wagner & Kruse, Properties of Water and Steam (1998)",
+    "mesh_file": "mesh/channel_20x5.msh",
+    "mesh_files": [
+        "mesh/channel_20x5.msh"
+    ],
+    "solver": "single_phase_variable_properties",
+    "parameters": {
+        "Lx": 0.5,
+        "Ly": 0.02,
+        "pressure": 15.5e6,
+        "T_inlet": 543.15,
+        "q_wall": 500000.0,
+        "mass_flux": 3000.0,
+        "max_iter": 1000,
+        "tol": 1e-5
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "temperature": 543.15, "velocity": "uniform"},
+        "outlet": {"type": "zero_gradient"},
+        "wall_bottom": {"type": "heat_flux", "q": 500000.0},
+        "wall_top": {"type": "adiabatic"}
+    },
+    "pass_criteria": {
+        "density_error_vs_iapws": {"max": 0.001},
+        "viscosity_error_vs_iapws": {"max": 0.005},
+        "enthalpy_error_vs_iapws": {"max": 0.001}
+    },
+    "output": {
+        "vtu_file": "results/iapws.vtu",
+        "fields": ["temperature", "pressure", "density", "viscosity"]
+    }
+}

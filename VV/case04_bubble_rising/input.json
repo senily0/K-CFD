@@ -1,0 +1,42 @@
+{
+    "case_name": "Single Bubble Rising",
+    "case_id": "04",
+    "description": "Single gas bubble rising in stagnant liquid column",
+    "reference": "Hysing et al., Int. J. Numer. Methods Fluids, 60, 1259-1288 (2009)",
+    "mesh_file": "mesh/quad_20x60.msh",
+    "mesh_files": [
+        "mesh/quad_20x60.msh",
+        "mesh/tri_unstructured.msh"
+    ],
+    "solver": "two_fluid",
+    "parameters": {
+        "Lx": 0.1,
+        "Ly": 0.3,
+        "rho_liquid": 1000.0,
+        "rho_gas": 1.0,
+        "mu_liquid": 0.001,
+        "mu_gas": 1e-5,
+        "sigma": 0.073,
+        "gravity": -9.81,
+        "bubble_center": [0.05, 0.05],
+        "bubble_radius": 0.025,
+        "dt": 0.001,
+        "t_end": 0.5,
+        "max_iter_per_step": 20,
+        "tol": 1e-5
+    },
+    "boundary_conditions": {
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "wall"},
+        "wall_left": {"type": "wall"},
+        "wall_right": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "terminal_velocity_error": {"max": 0.15},
+        "mass_conservation_error": {"max": 0.01}
+    },
+    "output": {
+        "vtu_file": "results/bubble_rising.vtu",
+        "fields": ["velocity", "pressure", "alpha", "curvature"]
+    }
+}

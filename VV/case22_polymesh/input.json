@@ -1,0 +1,29 @@
+{
+    "case_name": "Polyhedral Mesh I/O",
+    "case_id": "22",
+    "description": "Verify mesh reader and FVM operators on a minimal polyhedral (hex) mesh",
+    "reference": "Exact geometry verification (2-cell hex mesh)",
+    "mesh_file": "mesh/hex_2cell.msh",
+    "mesh_files": [
+        "mesh/hex_2cell.msh"
+    ],
+    "solver": "mesh_validation",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 2.0,
+        "Lz": 1.0,
+        "expected_cells": 2,
+        "expected_faces": 11,
+        "expected_internal_faces": 1
+    },
+    "boundary_conditions": {},
+    "pass_criteria": {
+        "cell_count": {"exact": 2},
+        "volume_error": {"max": 1e-10},
+        "face_normal_consistency": true
+    },
+    "output": {
+        "vtu_file": "results/polymesh.vtu",
+        "fields": ["cell_volume", "face_area", "face_normal"]
+    }
+}

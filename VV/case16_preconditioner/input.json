@@ -1,0 +1,39 @@
+{
+    "case_name": "Preconditioner Performance",
+    "case_id": "16",
+    "description": "Linear solver preconditioner comparison on 3D channel flow",
+    "reference": "Saad, Iterative Methods for Sparse Linear Systems, 2nd ed. (2003)",
+    "mesh_file": "mesh/hex_20x10x10.msh",
+    "mesh_files": [
+        "mesh/hex_20x10x10.msh"
+    ],
+    "solver": "single_phase_3d",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 0.5,
+        "Lz": 0.5,
+        "rho": 1.0,
+        "mu": 0.001,
+        "Re": 500,
+        "max_iter": 5000,
+        "tol": 1e-6,
+        "linear_solver": "bicgstab",
+        "preconditioners_to_test": ["none", "jacobi", "ilu", "amg"]
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "velocity": "parabolic_3d"},
+        "outlet": {"type": "zero_gradient", "pressure": 0.0},
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "wall"},
+        "wall_front": {"type": "wall"},
+        "wall_back": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "ilu_speedup_vs_none": {"min": 2.0},
+        "all_converged": true
+    },
+    "output": {
+        "vtu_file": "results/preconditioner.vtu",
+        "fields": ["velocity", "pressure"]
+    }
+}

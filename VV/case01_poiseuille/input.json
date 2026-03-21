@@ -1,0 +1,36 @@
+{
+    "case_name": "Poiseuille Flow",
+    "case_id": "01",
+    "description": "2D laminar channel flow between parallel plates",
+    "reference": "Analytical: u(y) = -dpdx/(2*mu) * y*(H-y)",
+    "mesh_file": "mesh/quad_50x20.msh",
+    "mesh_files": [
+        "mesh/quad_50x20.msh",
+        "mesh/quad_100x40.msh"
+    ],
+    "solver": "single_phase",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 0.1,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 10,
+        "max_iter": 500,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab"
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "velocity": "parabolic"},
+        "outlet": {"type": "zero_gradient", "pressure": 0.0},
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "L2_error": {"max": 0.05},
+        "u_max_error": {"max": 0.01}
+    },
+    "output": {
+        "vtu_file": "results/poiseuille.vtu",
+        "fields": ["velocity", "pressure"]
+    }
+}

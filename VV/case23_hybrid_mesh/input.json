@@ -1,0 +1,38 @@
+{
+    "case_name": "Hybrid Mesh Verification",
+    "case_id": "23",
+    "description": "Poiseuille flow on hybrid quad+tri (2D) and hex+tet (3D) meshes to verify FVM operators on mixed element types",
+    "reference": "Analytical Poiseuille solution on non-uniform mesh",
+    "mesh_file": "mesh/hybrid_quad_tri.msh",
+    "mesh_files": [
+        "mesh/hybrid_quad_tri.msh",
+        "mesh/hybrid_hex_tet.msh"
+    ],
+    "solver": "single_phase",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 0.1,
+        "Lz": 0.1,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 10,
+        "max_iter": 500,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab"
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "velocity": "parabolic"},
+        "outlet": {"type": "zero_gradient", "pressure": 0.0},
+        "wall_bottom": {"type": "wall"},
+        "wall_top": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "L2_error_2d": {"max": 0.05},
+        "L2_error_3d": {"max": 0.08},
+        "mass_conservation_error": {"max": 0.001}
+    },
+    "output": {
+        "vtu_file": "results/hybrid_mesh.vtu",
+        "fields": ["velocity", "pressure", "cell_type"]
+    }
+}

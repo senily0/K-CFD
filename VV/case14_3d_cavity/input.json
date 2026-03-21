@@ -1,0 +1,39 @@
+{
+    "case_name": "3D Lid-Driven Cavity",
+    "case_id": "14",
+    "description": "3D lid-driven cavity flow at Re=100",
+    "reference": "Ku, Hirsh & Taylor, J. Comput. Phys. 70, 439-462 (1987)",
+    "mesh_file": "mesh/hex_8x8x8.msh",
+    "mesh_files": [
+        "mesh/hex_8x8x8.msh"
+    ],
+    "solver": "single_phase_3d",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 1.0,
+        "Lz": 1.0,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 100,
+        "max_iter": 3000,
+        "tol": 1e-5,
+        "linear_solver": "bicgstab",
+        "preconditioner": "ilu"
+    },
+    "boundary_conditions": {
+        "lid": {"type": "dirichlet", "velocity": [1.0, 0.0, 0.0]},
+        "wall_bottom": {"type": "wall"},
+        "wall_front": {"type": "wall"},
+        "wall_back": {"type": "wall"},
+        "inlet": {"type": "wall"},
+        "outlet": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "u_centerline_error": {"max": 0.10},
+        "residual_reduction": {"min": 4}
+    },
+    "output": {
+        "vtu_file": "results/cavity_3d.vtu",
+        "fields": ["velocity", "pressure"]
+    }
+}

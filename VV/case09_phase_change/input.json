@@ -1,0 +1,34 @@
+{
+    "case_name": "Stefan Phase Change",
+    "case_id": "09",
+    "description": "1D Stefan problem for melting/solidification with moving interface",
+    "reference": "Analytical Stefan solution; Alexiades & Solomon, Mathematical Modeling of Melting and Freezing Processes (1993)",
+    "mesh_file": null,
+    "solver": "two_fluid_phase_change",
+    "parameters": {
+        "Lx": 0.1,
+        "T_hot": 373.15,
+        "T_cold": 273.15,
+        "T_melt": 273.15,
+        "rho": 1000.0,
+        "cp": 4186.0,
+        "k": 0.6,
+        "L_latent": 334000.0,
+        "dt": 0.01,
+        "t_end": 10.0,
+        "nx": 100,
+        "tol": 1e-6
+    },
+    "boundary_conditions": {
+        "left": {"type": "dirichlet", "temperature": 373.15},
+        "right": {"type": "dirichlet", "temperature": 273.15}
+    },
+    "pass_criteria": {
+        "interface_position_error": {"max": 0.05},
+        "temperature_L2_error": {"max": 0.02}
+    },
+    "output": {
+        "vtu_file": "results/phase_change.vtu",
+        "fields": ["temperature", "liquid_fraction", "interface_position"]
+    }
+}

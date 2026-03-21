@@ -1,0 +1,36 @@
+{
+    "case_name": "Lid-Driven Cavity",
+    "case_id": "02",
+    "description": "2D lid-driven cavity flow at Re=100",
+    "reference": "Ghia, Ghia & Shin, J. Comput. Phys. 48, 387-411 (1982)",
+    "mesh_file": "mesh/quad_32x32.msh",
+    "mesh_files": [
+        "mesh/quad_32x32.msh",
+        "mesh/quad_64x64.msh"
+    ],
+    "solver": "single_phase",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 1.0,
+        "rho": 1.0,
+        "mu": 0.01,
+        "Re": 100,
+        "max_iter": 2000,
+        "tol": 1e-6,
+        "linear_solver": "bicgstab"
+    },
+    "boundary_conditions": {
+        "lid": {"type": "dirichlet", "velocity": [1.0, 0.0]},
+        "wall_bottom": {"type": "wall"},
+        "wall_left": {"type": "wall"},
+        "wall_right": {"type": "wall"}
+    },
+    "pass_criteria": {
+        "u_centerline_error": {"max": 0.05},
+        "v_centerline_error": {"max": 0.05}
+    },
+    "output": {
+        "vtu_file": "results/cavity.vtu",
+        "fields": ["velocity", "pressure", "streamfunction"]
+    }
+}

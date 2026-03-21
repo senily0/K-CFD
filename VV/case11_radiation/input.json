@@ -1,0 +1,37 @@
+{
+    "case_name": "Radiation Transport (P1 Approximation)",
+    "case_id": "11",
+    "description": "1D radiative transfer in participating medium using P1 model",
+    "reference": "Analytical P1 solution for a grey slab; Modest, Radiative Heat Transfer (2013)",
+    "mesh_file": "mesh/slab_1x50.msh",
+    "mesh_files": [
+        "mesh/slab_1x50.msh",
+        "mesh/slab_1x100.msh"
+    ],
+    "solver": "radiation_p1",
+    "parameters": {
+        "Lx": 0.01,
+        "Ly": 1.0,
+        "absorption_coeff": 1.0,
+        "scattering_coeff": 0.0,
+        "T_hot": 1000.0,
+        "T_cold": 300.0,
+        "emissivity": 1.0,
+        "max_iter": 500,
+        "tol": 1e-6
+    },
+    "boundary_conditions": {
+        "inlet": {"type": "dirichlet", "incident_radiation": "blackbody", "temperature": 1000.0},
+        "outlet": {"type": "dirichlet", "incident_radiation": "blackbody", "temperature": 300.0},
+        "wall_bottom": {"type": "symmetry"},
+        "wall_top": {"type": "symmetry"}
+    },
+    "pass_criteria": {
+        "heat_flux_error": {"max": 0.05},
+        "temperature_L2_error": {"max": 0.03}
+    },
+    "output": {
+        "vtu_file": "results/radiation.vtu",
+        "fields": ["incident_radiation", "temperature", "heat_flux"]
+    }
+}

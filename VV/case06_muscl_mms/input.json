@@ -1,0 +1,36 @@
+{
+    "case_name": "MUSCL Method of Manufactured Solutions",
+    "case_id": "06",
+    "description": "Grid convergence study using MMS for MUSCL convection scheme",
+    "reference": "Roache, P.J., Verification and Validation in Computational Science and Engineering, Hermosa (2002)",
+    "mesh_file": "mesh/quad_10x10.msh",
+    "mesh_files": [
+        "mesh/quad_10x10.msh",
+        "mesh/quad_20x20.msh",
+        "mesh/quad_40x40.msh"
+    ],
+    "solver": "convection_diffusion",
+    "parameters": {
+        "Lx": 1.0,
+        "Ly": 1.0,
+        "rho": 1.0,
+        "mu": 0.01,
+        "velocity_field": [1.0, 0.5],
+        "mms_source": "sin(pi*x)*sin(pi*y)",
+        "convection_scheme": "muscl",
+        "limiter": "van_leer",
+        "max_iter": 1000,
+        "tol": 1e-8
+    },
+    "boundary_conditions": {
+        "all": {"type": "dirichlet", "value": "mms_exact"}
+    },
+    "pass_criteria": {
+        "convergence_order": {"min": 1.8},
+        "L2_error_finest": {"max": 0.01}
+    },
+    "output": {
+        "vtu_file": "results/muscl_mms.vtu",
+        "fields": ["phi", "phi_exact", "error"]
+    }
+}
