@@ -159,6 +159,12 @@ private:
     Eigen::VectorXd aP_l_, aP_g_storage_;
     bool has_aP_l_ = false, has_aP_g_ = false;
 
+    // Cell-local property fields (used when property_model == "iapws97")
+    Eigen::VectorXd rho_l_field, rho_g_field;
+    Eigen::VectorXd mu_l_field, mu_g_field;
+    Eigen::VectorXd cp_l_field, cp_g_field;
+    Eigen::VectorXd k_l_field, k_g_field;
+
     // Species transport
     std::unique_ptr<SpeciesTransportSolver> species_solver_;
     std::unique_ptr<FirstOrderReaction> reaction_;

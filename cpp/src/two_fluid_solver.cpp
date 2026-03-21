@@ -58,6 +58,17 @@ void TwoFluidSolver::initialize(double alpha_g_init) {
     alpha_g_.set_uniform(alpha_g_init);
     alpha_l_.set_uniform(1.0 - alpha_g_init);
 
+    // Initialize property fields to uniform values
+    int n = mesh_.n_cells;
+    rho_l_field = Eigen::VectorXd::Constant(n, rho_l);
+    rho_g_field = Eigen::VectorXd::Constant(n, rho_g);
+    mu_l_field  = Eigen::VectorXd::Constant(n, mu_l);
+    mu_g_field  = Eigen::VectorXd::Constant(n, mu_g);
+    cp_l_field  = Eigen::VectorXd::Constant(n, cp_l);
+    cp_g_field  = Eigen::VectorXd::Constant(n, cp_g);
+    k_l_field   = Eigen::VectorXd::Constant(n, k_l);
+    k_g_field   = Eigen::VectorXd::Constant(n, k_g);
+
     if (solve_species) {
         if (species_k_r > 0) {
             reaction_ = std::make_unique<FirstOrderReaction>(species_k_r);
@@ -335,22 +346,39 @@ double TwoFluidSolver::simple_iteration() {
 
     // Update properties from IAPWS-IF97 if enabled
     if (property_model == "iapws97") {
-        double T_avg_l = T_l_.mean();
-        double T_avg_g = T_g_.mean();
-        auto liq = IAPWS_IF97::liquid(T_avg_l, system_pressure);
-        auto vap = IAPWS_IF97::vapor(T_avg_g, system_pressure);
-        rho_l = liq.rho;
-        mu_l  = liq.mu;
-        cp_l  = liq.cp;
-        k_l   = liq.k;
-        rho_g = vap.rho;
-        mu_g  = vap.mu;
-        cp_g  = vap.cp;
-        k_g   = vap.k;
+        #pragma omp parallel for schedule(static)
+        for (int ci = 0; ci < mesh_.n_cells; ++ci) {
+            double T_l_local = std::max(T_l_.values[ci], 273.15);
+            double T_g_local = std::max(T_g_.values[ci], 273.15);
+            double p_local   = system_pressure;
+
+            auto liq = IAPWS_IF97::liquid(T_l_local, p_local);
+            rho_l_field[ci] = liq.rho;
+            mu_l_field[ci]  = liq.mu;
+            cp_l_field[ci]  = liq.cp;
+            k_l_field[ci]   = liq.k;
+
+            auto vap = IAPWS_IF97::vapor(T_g_local, p_local);
+            rho_g_field[ci] = vap.rho;
+            mu_g_field[ci]  = vap.mu;
+            cp_g_field[ci]  = vap.cp;
+            k_g_field[ci]   = vap.k;
+        }
+
+        // Update bulk scalars (drag, pressure correction, closures)
+        rho_l = rho_l_field.mean();
+        rho_g = rho_g_field.mean();
+        mu_l  = mu_l_field.mean();
+        mu_g  = mu_g_field.mean();
+        cp_l  = cp_l_field.mean();
+        cp_g  = cp_g_field.mean();
+        k_l   = k_l_field.mean();
+        k_g   = k_g_field.mean();
+
         h_fg  = IAPWS_IF97::h_fg(system_pressure);
         T_sat = IAPWS_IF97::T_sat(system_pressure);
         if (sigma_surface <= 0.0) {
-            sigma_surface = IAPWS_IF97::surface_tension(T_avg_l);
+            sigma_surface = IAPWS_IF97::surface_tension(T_sat);
         }
     }
 
@@ -549,9 +577,14 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
         phi.old_old_values = U.old_old_values.value().col(comp);
     }
 
-    // Diffusion: alpha * mu
+    // Diffusion: alpha * mu (cell-local when iapws97 is active)
     ScalarField gamma(mesh_, "gamma");
-    gamma.values = alpha.values * mu;
+    if (property_model == "iapws97") {
+        const Eigen::VectorXd& mu_field = is_liquid ? mu_l_field : mu_g_field;
+        gamma.values = alpha.values.cwiseProduct(mu_field);
+    } else {
+        gamma.values = alpha.values * mu;
+    }
 
     // BIT for liquid phase
     Eigen::VectorXd mu_BIT = sato_bubble_induced_turbulence(
@@ -591,12 +624,16 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     }
 
     // Temporal term
+    const Eigen::VectorXd& rho_field = (property_model == "iapws97")
+        ? (is_liquid ? rho_l_field : rho_g_field)
+        : Eigen::VectorXd{};  // unused sentinel
     if (time_scheme == "bdf2" && phi.old_values.has_value() && phi.old_old_values.has_value()) {
         // BDF2: (3/(2*dt)) * rho*alpha*V * phi = (4/(2*dt)) * rho*alpha*V * phi^n
         //                                       - (1/(2*dt)) * rho*alpha*V * phi^{n-1}
         for (int ci = 0; ci < n; ++ci) {
             double vol = mesh_.cells[ci].volume;
-            double coeff = alpha.values[ci] * rho * vol;
+            double rho_ci = (property_model == "iapws97") ? rho_field[ci] : rho;
+            double coeff = alpha.values[ci] * rho_ci * vol;
             system.add_diagonal(ci, 1.5 * coeff / dt);
             system.add_source(ci, (2.0 * coeff / dt) * phi.old_values.value()[ci]
                                 - (0.5 * coeff / dt) * phi.old_old_values.value()[ci]);
@@ -604,7 +641,8 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     } else if (phi.old_values.has_value()) {
         for (int ci = 0; ci < n; ++ci) {
             double vol = mesh_.cells[ci].volume;
-            double coeff = alpha.values[ci] * rho * vol / dt;
+            double rho_ci = (property_model == "iapws97") ? rho_field[ci] : rho;
+            double coeff = alpha.values[ci] * rho_ci * vol / dt;
             system.add_diagonal(ci, coeff);
             system.add_source(ci, coeff * phi.old_values.value()[ci]);
         }
@@ -653,7 +691,8 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     // Gravity: alpha * rho * g (body force on this phase)
     for (int ci = 0; ci < n; ++ci) {
         double vol = mesh_.cells[ci].volume;
-        system.add_source(ci, alpha.values[ci] * rho * g[comp] * vol);
+        double rho_ci = (property_model == "iapws97") ? rho_field[ci] : rho;
+        system.add_source(ci, alpha.values[ci] * rho_ci * g[comp] * vol);
     }
 
     // Additional interfacial forces (liquid phase only)
@@ -1023,9 +1062,24 @@ double TwoFluidSolver::solve_phase_energy(
     int n = mesh_.n_cells;
     FVMSystem system(n);
 
-    // Diffusion: alpha * k_cond
+    // Select cell-local property fields when iapws97 is active
+    bool is_liq_energy = (phase == "liquid");
+    const Eigen::VectorXd* k_field_ptr   = nullptr;
+    const Eigen::VectorXd* rho_field_ptr = nullptr;
+    const Eigen::VectorXd* cp_field_ptr  = nullptr;
+    if (property_model == "iapws97") {
+        k_field_ptr   = is_liq_energy ? &k_l_field   : &k_g_field;
+        rho_field_ptr = is_liq_energy ? &rho_l_field : &rho_g_field;
+        cp_field_ptr  = is_liq_energy ? &cp_l_field  : &cp_g_field;
+    }
+
+    // Diffusion: alpha * k_cond (cell-local when iapws97)
     ScalarField gamma(mesh_, "gamma_T_" + phase);
-    gamma.values = alpha.values * k_cond;
+    if (property_model == "iapws97") {
+        gamma.values = alpha.values.cwiseProduct(*k_field_ptr);
+    } else {
+        gamma.values = alpha.values * k_cond;
+    }
     if (n_nonorth_correctors > 0) {
         diffusion_operator_corrected(mesh_, gamma, T, system, n_nonorth_correctors);
     } else {
@@ -1036,14 +1090,15 @@ double TwoFluidSolver::solve_phase_energy(
     Eigen::VectorXd alpha_cp_mf(mesh_.n_faces);
     for (int fid = 0; fid < mesh_.n_faces; ++fid) {
         const Face& face = mesh_.faces[fid];
-        double alpha_f;
+        int upwind_cell;
         if (face.neighbour >= 0) {
             double F = mass_flux[fid];
-            alpha_f = (F >= 0) ? alpha.values[face.owner] : alpha.values[face.neighbour];
+            upwind_cell = (F >= 0) ? face.owner : face.neighbour;
         } else {
-            alpha_f = alpha.values[face.owner];
+            upwind_cell = face.owner;
         }
-        alpha_cp_mf[fid] = mass_flux[fid] * alpha_f * cp;
+        double cp_f = (property_model == "iapws97") ? (*cp_field_ptr)[upwind_cell] : cp;
+        alpha_cp_mf[fid] = mass_flux[fid] * alpha.values[upwind_cell] * cp_f;
     }
     convection_operator_upwind(mesh_, alpha_cp_mf, system);
 
@@ -1051,7 +1106,9 @@ double TwoFluidSolver::solve_phase_energy(
     if (time_scheme == "bdf2" && T.old_values.has_value() && T.old_old_values.has_value()) {
         for (int ci = 0; ci < n; ++ci) {
             double vol = mesh_.cells[ci].volume;
-            double coeff = alpha.values[ci] * rho * cp * vol;
+            double rho_ci = (property_model == "iapws97") ? (*rho_field_ptr)[ci] : rho;
+            double cp_ci  = (property_model == "iapws97") ? (*cp_field_ptr)[ci]  : cp;
+            double coeff = alpha.values[ci] * rho_ci * cp_ci * vol;
             system.add_diagonal(ci, 1.5 * coeff / dt_local);
             system.add_source(ci, (2.0 * coeff / dt_local) * T.old_values.value()[ci]
                                 - (0.5 * coeff / dt_local) * T.old_old_values.value()[ci]);
@@ -1059,7 +1116,9 @@ double TwoFluidSolver::solve_phase_energy(
     } else if (T.old_values.has_value()) {
         for (int ci = 0; ci < n; ++ci) {
             double vol = mesh_.cells[ci].volume;
-            double coeff = alpha.values[ci] * rho * cp * vol / dt_local;
+            double rho_ci = (property_model == "iapws97") ? (*rho_field_ptr)[ci] : rho;
+            double cp_ci  = (property_model == "iapws97") ? (*cp_field_ptr)[ci]  : cp;
+            double coeff = alpha.values[ci] * rho_ci * cp_ci * vol / dt_local;
             system.add_diagonal(ci, coeff);
             system.add_source(ci, coeff * T.old_values.value()[ci]);
         }
