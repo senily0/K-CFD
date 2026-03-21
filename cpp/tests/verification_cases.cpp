@@ -366,6 +366,14 @@ void case4_bubble_column() {
     std::cout << "  alpha_top=" << alpha_top << " alpha_bot=" << alpha_bot
               << " K_drag_mean=" << K_mean << "\n";
 
+    // Gas velocity diagnostic
+    double ug_y_sum = 0.0;
+    for (int i = 0; i < mesh.n_cells; ++i) {
+        ug_y_sum += tf.U_g_field().values(i, 1);
+    }
+    double ug_y_mean = ug_y_sum / mesh.n_cells;
+    std::cout << "  ug_y_mean=" << ug_y_mean << "\n";
+
     // ----- Publication PASS criteria (no hardcoded pass) -----
     //
     // The two-fluid SIMPLE solver is tested for:

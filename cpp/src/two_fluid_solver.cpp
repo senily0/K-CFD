@@ -383,16 +383,61 @@ double TwoFluidSolver::simple_iteration() {
                                                    U_g_.values, U_l_.values, d_b, mu_l);
             }
 
-            // Momentum equations (each phase, each component)
+            // Momentum equations
+            // Liquid: solve full momentum equation
             for (int comp = 0; comp < ndim; ++comp) {
                 res_mom.push_back(solve_phase_momentum("liquid", comp, mf_l, K_drag));
             }
+            // Gas: solve momentum but store aP for pressure correction
             for (int comp = 0; comp < ndim; ++comp) {
                 res_mom.push_back(solve_phase_momentum("gas", comp, mf_g, K_drag));
             }
 
             // Pressure correction
             res_p = solve_pressure_correction(mf_l, mf_g);
+
+            // Drift-flux buoyancy correction for gas velocity.
+            // After the pressure correction, the gas velocity may have
+            // lost its buoyancy-driven component (the pressure correction
+            // fights buoyancy at high density ratios). Restore the gas
+            // slip velocity from the drag-buoyancy balance:
+            //   u_g = u_l + u_drift
+            //   u_drift = (rho_l - rho_g) * g / K_eff_per_alpha
+            // where K_eff = 0.75 * C_D * rho_l * |u_rel| / d_b (per unit alpha_g)
+            // At low relative velocity, use Stokes: K_eff = 18 * mu_l / d_b^2
+            {
+                int nc = mesh_.n_cells;
+                // Compute current drag
+                Eigen::VectorXd Kd = K_drag;
+
+                // Drag floor: use Newton-regime drag (C_D ≈ 0.44) to
+                // estimate terminal velocity drag coefficient:
+                //   K = 0.75 * C_D * rho_l * u_t / d_b
+                // where u_t ≈ sqrt(4*d_b*(rho_l-rho_g)*g/(3*rho_l*C_D))
+                double g_mag = 9.81;
+                double C_D0 = 0.44;
+                double u_t_est = std::sqrt(4.0 * d_b * (rho_l - rho_g) * g_mag
+                                           / (3.0 * rho_l * C_D0));
+                double K_newton = 0.75 * C_D0 * rho_l * std::max(u_t_est, 0.01) / d_b;
+
+                for (int ci = 0; ci < nc; ++ci) {
+                    double ag = alpha_g_.values[ci];
+                    // Per-unit-alpha drag coefficient (K / alpha_g)
+                    double K_per_alpha = (ag > 1e-15) ? Kd[ci] / ag : K_newton;
+                    K_per_alpha = std::max(K_per_alpha, K_newton);
+
+                    for (int d = 0; d < ndim; ++d) {
+                        // Drift velocity from buoyancy-drag balance
+                        // buoyancy_per_alpha = (rho_l - rho_g) * (-g[d])
+                        // u_drift = buoyancy_per_alpha / K_per_alpha
+                        double u_drift = (rho_l - rho_g) * (-g[d]) / K_per_alpha;
+                        u_drift = std::clamp(u_drift, -U_max, U_max);
+
+                        // Set gas velocity = liquid velocity + drift (direct set, no under-relax)
+                        U_g_.values(ci, d) = U_l_.values(ci, d) + u_drift;
+                    }
+                }
+            }
 
             // Volume fraction
             Eigen::VectorXd dot_m = solve_energy
@@ -574,19 +619,13 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
         if (face.neighbour >= 0) {
             int nb = face.neighbour;
             double dp = p_.values[nb] - p_.values[o];
-            // Use face-averaged alpha so the pressure force is conservative:
-            // both owner and neighbour see the same alpha weight on this face.
-            // Using cell-local alpha (al_o for owner, al_nb for neighbour) breaks
-            // momentum conservation when alpha varies across the face (sharp gradients).
             double al_f = 0.5 * (alpha.values[o] + alpha.values[nb]);
 
-            // Pressure gradient contribution to owner and neighbour
             double force_o = -al_f * dp * face.normal[comp] * face.area;
             double force_nb =  al_f * dp * face.normal[comp] * face.area;
             system.add_source(o, force_o);
             system.add_source(nb, force_nb);
         } else {
-            // Boundary: check for Dirichlet pressure BC, else zero-gradient (dp=0)
             double p_b = p_.values[o];  // zero-gradient default
             auto cache_it = face_bc_cache_.find(fid);
             if (cache_it != face_bc_cache_.end()) {
@@ -612,9 +651,6 @@ double TwoFluidSolver::solve_phase_momentum(const std::string& phase, int comp,
     }
 
     // Gravity: alpha * rho * g (body force on this phase)
-    // Buoyancy arises from the combination of this term and -alpha*grad(p).
-    // In a hydrostatic liquid: -alpha_l*grad(p) + alpha_l*rho_l*g = 0
-    // For gas: -alpha_g*grad(p) + alpha_g*rho_g*g = alpha_g*(rho_g-rho_l)*g (net upward)
     for (int ci = 0; ci < n; ++ci) {
         double vol = mesh_.cells[ci].volume;
         system.add_source(ci, alpha.values[ci] * rho * g[comp] * vol);
@@ -757,11 +793,12 @@ double TwoFluidSolver::solve_pressure_correction(const Eigen::VectorXd& mf_l,
             system.add_off_diagonal(o, nb, -coeff);
             system.add_off_diagonal(nb, o, -coeff);
 
-            // RHS: mass imbalance
+            // RHS: mass imbalance from momentum fluxes
             double total_mf = mf_l[fid] * alpha_l_.values[o]
                             + mf_g[fid] * alpha_g_.values[o];
             system.add_source(o, -total_mf);
             system.add_source(nb, total_mf);
+
         } else {
             double total_mf = mf_l[fid] * alpha_l_.values[o]
                             + mf_g[fid] * alpha_g_.values[o];
@@ -918,9 +955,12 @@ double TwoFluidSolver::solve_volume_fraction(const Eigen::VectorXd& mf_g,
     // in pure-liquid cells, which triggers false divergence detection and causes
     // downstream division issues in drag and pressure correction terms.
     constexpr double alpha_min_floor = 1e-20;
+    // Cap at 0.99 to prevent liquid phase from vanishing, which causes
+    // singular pressure correction (zero liquid coefficient).
+    double alpha_max_eff = std::min(alpha_max, 0.99);
 #pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
-        alpha_g_.values[ci] = std::clamp(alpha_g_.values[ci], alpha_min_floor, alpha_max);
+        alpha_g_.values[ci] = std::clamp(alpha_g_.values[ci], alpha_min_floor, alpha_max_eff);
     }
     alpha_l_.values = Eigen::VectorXd::Ones(n) - alpha_g_.values;
 
