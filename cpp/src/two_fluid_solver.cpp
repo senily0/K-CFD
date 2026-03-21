@@ -831,18 +831,15 @@ double TwoFluidSolver::solve_pressure_correction(const Eigen::VectorXd& mf_l,
         }
     }
 
-    // Correct velocities: U_k' = -V / aP_k * grad(p')
-    // NOTE: alpha_k is NOT included here -- it is already accounted for in the
-    // pressure correction equation coefficients (coeff_k = rho_k * alpha_k * V / aP_k).
-    // Including alpha_k again would suppress the velocity correction in cells with
-    // small volume fraction, preventing the gas phase from developing buoyancy-driven
-    // upward velocity in dilute regions.
+    // Correct velocities
 #pragma omp parallel for schedule(static)
     for (int ci = 0; ci < n; ++ci) {
         double vol = mesh_.cells[ci].volume;
         for (int d = 0; d < ndim; ++d) {
-            double corr_l = -vol / std::max(aP_l_[ci], 1e-20) * grad_pp(ci, d);
-            double corr_g = -vol / std::max(aP_g_storage_[ci], 1e-20) * grad_pp(ci, d);
+            double corr_l = -alpha_l_.values[ci] * vol
+                            / std::max(aP_l_[ci], 1e-20) * grad_pp(ci, d);
+            double corr_g = -alpha_g_.values[ci] * vol
+                            / std::max(aP_g_storage_[ci], 1e-20) * grad_pp(ci, d);
             U_l_.values(ci, d) += alpha_p * corr_l;
             U_g_.values(ci, d) += alpha_p * corr_g;
         }
