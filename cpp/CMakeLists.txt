@@ -3,10 +3,10 @@ project(twofluid_cpp CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# MinGW + Eigen: use -O2 (not -O3 which can cause alignment issues).
-# Stack increased to 16MB for large Eigen temporaries.
+# MinGW + Eigen: -O2 causes segfaults in solver with Rhie-Chow. Use -O1.
 if(MINGW AND CMAKE_BUILD_TYPE STREQUAL "Release")
-    string(REPLACE "-O3" "-O2" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    string(REPLACE "-O3" "-O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    string(REPLACE "-O2" "-O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 endif()
 
 # Try system Eigen first, fall back to local path
@@ -104,7 +104,7 @@ add_executable(twofluid_solver src/main.cpp)
 target_link_libraries(twofluid_solver PRIVATE twofluid_core)
 # Increase stack size to 8MB (MinGW default 1MB can cause crashes with Eigen)
 if(MINGW)
-    target_link_options(twofluid_solver PRIVATE -Wl,--stack,8388608)
+    target_link_options(twofluid_solver PRIVATE -Wl,--stack,33554432)
 endif()
 
 # Native test executables (no Python dependency)

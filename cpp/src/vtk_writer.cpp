@@ -1,3 +1,6 @@
+// MinGW -O1/-O2 causes segfaults in unordered_map iteration + ofstream.
+#pragma GCC optimize("O0")
+
 #include "twofluid/vtk_writer.hpp"
 
 #include <fstream>
