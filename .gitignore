@@ -34,3 +34,5 @@ Thumbs.db
 .omc/
 cpp/build_mpi_check/
 cpp/build/
+report/*.docx
+*.docx
