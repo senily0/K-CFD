@@ -292,6 +292,48 @@ OpenFOAM/ANSYS 방식: ghost cell을 내부면으로 처리, 매 SpMV마다 ghos
 
 ---
 
+## Gmsh 메쉬 (`cpp/meshes/`)
+
+`cpp/meshes/generate_all_meshes.py` 스크립트로 모든 검증 케이스용 Gmsh `.msh` 파일을 생성합니다.
+
+**요구사항**: `pip install gmsh` (4.15+)
+
+**실행**: `python cpp/meshes/generate_all_meshes.py`
+
+```
+cpp/meshes/
+  case01_poiseuille/
+    mesh_50x20.msh          # 구조 quad (1000 cells)
+    mesh_100x40.msh         # 미세 격자 (4000 cells)
+  case02_cavity/
+    mesh_32x32.msh          # 구조 quad (1024 cells)
+    mesh_64x64.msh          # 미세 격자 (4096 cells)
+  case04_bubble_rising/
+    mesh_20x60.msh          # 구조 quad (1200 cells)
+    mesh_tri.msh            # 비구조 삼각형 (~2854 cells)
+  case06_muscl/
+    mesh_10x10.msh          # MMS 격자 수렴 (100 cells)
+    mesh_20x20.msh          # (400 cells)
+    mesh_40x40.msh          # (1600 cells)
+  case11_radiation/
+    mesh_1x50.msh           # 1D slab (50 cells)
+    mesh_1x100.msh          # (100 cells)
+  case14_3d_cavity/
+    mesh_8x8x8.msh          # 3D hex (512 cells)
+  case16_preconditioner/
+    mesh_20x10x10.msh       # 3D hex (2000 cells)
+  case19_iapws/
+    mesh_20x5.msh           # 가열 채널 (100 cells)
+  case20_rpi_boiling/
+    mesh_20x10.msh          # 가열벽 채널 (200 cells)
+  case22_polymesh/
+    mesh_2cell.msh          # 2-cell 테스트용 (2 cells)
+```
+
+모든 메쉬에 물리 그룹(경계조건 이름)이 포함되어 있으며, `read_gmsh_msh()` 리더와 호환됩니다.
+
+---
+
 ## 라이선스
 
 MIT License
