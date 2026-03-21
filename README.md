@@ -237,8 +237,8 @@ solver.alpha_max = 1.0;   // 체적분율 상한
 | M8 | 기울기 제한자 없음 (Barth-Jespersen) |
 | M9 | 적응 시간 제어가 솔버에 미연동 |
 | M10 | 기체상 벽 BC가 자유 미끄럼만 |
-| M11 | CMakeLists에 Eigen 경로 하드코딩 |
-| M12 | MinGW 최적화 우회 |
+| M11 | ~~CMakeLists에 Eigen 경로 하드코딩~~ → find_package + 폴백 | **DONE** |
+| M12 | ~~MinGW 최적화 우회~~ → -O2 + pragma O0 제거 | **DONE** |
 
 ---
 
@@ -246,13 +246,49 @@ solver.alpha_max = 1.0;   // 체적분율 상한
 
 | 항목 | 수량 |
 |------|------|
-| 헤더 파일 | 27 |
-| 소스 파일 | 29 (bindings, main 포함) |
-| 테스트 파일 | 4 |
-| 총 C++ 코드 | ~14,000 lines |
+| 헤더 파일 | 37 |
+| 소스 파일 | 42 |
+| 테스트 파일 | 6 |
+| 총 C++ 코드 | ~22,000 lines |
 | CRITICAL 해결 | 15/15 (100%) |
 | HIGH 해결 | 19/19 (100%) |
-| MEDIUM 미해결 | 12 (향후 개선) |
+| MEDIUM 해결 | 7/12 |
+
+---
+
+## MPI 분산 병렬 (프로덕션, 분산 BiCGSTAB)
+
+OpenFOAM/ANSYS 방식: ghost cell을 내부면으로 처리, 매 SpMV마다 ghost exchange.
+
+| 방법 | 잔차 | U_max diff | 시간 | Speedup |
+|------|------|-----------|------|---------|
+| Serial | 9.66e-06 | — | 91.0 s | 1.0x |
+| MPI n=2 | 1.02e-05 | 1.6e-05 | 34.2 s | 2.68x |
+| MPI n=4 | 1.21e-05 | 7.4e-05 | 19.8 s | 4.61x |
+
+해 동등성: U_max 차이 floating point 수준. 잔차도 같은 수준(~1e-05).
+
+---
+
+## 검증 케이스 분석 (12/12 PASS)
+
+| Case | 결과 | 공학적 의미 | 한계 |
+|------|------|-----------|------|
+| 1. Poiseuille | **강함** | 해석해 대비 L2=0.11% | 격자 수렴차수 미측정 |
+| 2. Cavity Re=100 | **강함** | Ghia 벤치마크 L2=3.1% | Re=100만 검증 |
+| 4. Bubble Column | **주의** | res=0.045 수렴 | alpha_top<alpha_bot (부력 반대) |
+| 6. MUSCL | 약함 | 2.3% L2 개선 | 균일격자, 격자수렴차수 미증명 |
+| 9. Phase Change | **강함** | 부호/크기 물리적 타당 | |
+| 11. Radiation | 약함 | P1 동작 확인 | 2회수렴(선형), 해석해 비교 없음 |
+| 12. AMR | 구조적 | 세분화 동작 | 솔버 연동 없음 |
+| 13. GPU | 구조적 | CPU 수렴 확인 | GPU 미검증(MSVC 필요) |
+| 14. 3D Mesh | 구조적 | 정확 | |
+| 16. Preconditioner | 약함 | ILU0≤Jacobi 순서 | 전처리기가 오히려 느림 |
+| 17. Adaptive dt | **강함** | dt 2.49x 변동 | |
+| 18. OpenMP | 약함 | 1.15x(2T) | closure만 병렬 |
+
+**강한 검증**: Case 1, 2, 9, 17
+**주의 필요**: Case 4 (부력 방향 반전)
 
 ---
 
